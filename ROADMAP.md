@@ -1,4 +1,4 @@
-# GoldPerGather — Ideas & Roadmap
+# Time Is Money — Ideas & Roadmap
 
 Scratchpad for future features. Nothing here is committed; it's a backlog so ideas
 don't get lost. Rough feasibility tags: **Easy / Medium / Hard / Rabbit hole**.
@@ -18,7 +18,7 @@ Track raw gold looted during a run, alongside the professions.
 ## 2. Run framing: Start/Stop a farm run  — Easy
 Right now "session" = since login. A bounded run is more useful for GPH.
 
-- `/gpg run` to start/stop; or auto-start on first gather, auto-stop after N
+- `/tim run` to start/stop; or auto-start on first gather, auto-stop after N
   minutes idle.
 - End-of-run summary: items, cloth, ore, herbs, coin, total AH value, GPH,
   minus repair/consumable costs = **net profit**.
@@ -88,6 +88,45 @@ A fixed-window earnings timer, separate from the rolling GPH.
 
 ---
 
+## 8. AH-sales (mailbox gold) tracking  — Medium — ✅ APPROVED
+A checkbox to track gold collected from **Auction House sale mails** as its own
+income source.
+
+- Read the inbox via `GetInboxHeaderInfo(i)` (sender, subject, money). Match the
+  subject against `AUCTION_SOLD_MAIL_SUBJECT` ("Auction successful: %s") to pick
+  out AH-sale mail specifically.
+- The mail money is the **net** you receive (sale price minus the AH cut), which is
+  exactly the gold that matters.
+- **Count on collection, not on sight.** Money sitting in the mailbox shouldn't
+  count until taken — otherwise it double-counts every time the inbox refreshes.
+  Track per-mail and record when its money is actually collected.
+- **No clash with #1 (coin):** taking mail money does *not* fire `CHAT_MSG_MONEY`,
+  so the looted-coin tracker won't see it. Different event paths.
+
+Design decision — keep it OUT of the farm GPH:
+- AH sales are **passive income**, not gold-per-hour-of-farming. Folding them into
+  the gather GPH would wildly distort "how good is this farm route." So track AH
+  sales as a **separate source/line** (its own total + breakdown entry), excluded
+  from the gathering GPH. Default the toggle **off** — it's a different kind of
+  income the user opts into.
+
+---
+
+## 9. Price source selector (TSM / Auctionator / Vendor)  — Easy — ✅ APPROVED
+Today `AHValue()` is hardcoded TSM → Auctionator → vendor. Auctionator is already a
+fallback; this just gives the user the choice.
+
+- A **"Price source"** option: **Auto** (TSM → Auctionator → vendor, the default),
+  **TSM**, **Auctionator**, **Vendor**.
+- Auctionator's public API returns a single value
+  (`Auctionator.API.v1.GetAuctionPriceByItemID`), so — unlike TSM — it has no
+  sub-types; no extra selector for it. The existing TSM price-string picker only
+  applies when TSM is the active source.
+- Gray out / hide a source whose addon isn't installed.
+- Credit TSM & Auctionator in the README (see note below).
+
+---
+
 ## UI / layout direction
 As features grow, one fixed panel won't fit. Direction:
 
@@ -128,6 +167,29 @@ As features grow, one fixed panel won't fit. Direction:
   typical mat value to suggest DE instead of vendor/AH (advisory only).
 
 ---
+
+## Audio & polish — ✅ APPROVED (build alongside run framing / timers)
+Make it feel ship-worthy with tasteful built-in WoW sounds. The namesake hook:
+the goblin **"Time is money, friend!"** voiceover.
+
+- **Signature line** on **run start** (#2) — thematic greeting. Maybe also when a
+  gold goal is hit. Save the *voice* for "start / win" moments only.
+- **Timer / countdown end** (#7): a distinct alert sound (alarm-like, not the
+  voice).
+- **Gold-goal reached**: a coin / cash-register style sound.
+
+Implementation notes:
+- Small `Sounds.lua`: one `Play(name)` entry point, an event→sound table, played
+  on the **SFX channel** so it respects the player's sound settings.
+- **Toggleable** — a master "addon sounds" checkbox, ideally per-event toggles.
+  Some players hate addon audio; default on, easy to silence.
+- **Don't spam** — debounce. The voice once per run start is plenty; never per loot.
+- `PlaySound(soundKitID, "SFX")` for named kits; `PlaySoundFile(fileID, "SFX")` for
+  a specific voice file.
+- **Open question — exact IDs:** the goblin line + coin/alarm sounds need their
+  SoundKit / FileData IDs confirmed in-game. Audition candidates via a temporary
+  `/tim sound <id>` command, then lock the winners. "Time is money, friend!" is an
+  NPC voiceover file, so probably `PlaySoundFile`, not a named kit.
 
 ## Safety rules for auto-sell features — N/A (parked)
 No feature sells items anymore: #3 became a non-destructive estimate and #4 is
