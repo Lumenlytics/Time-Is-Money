@@ -33,6 +33,8 @@ per-source run breakdown, and a 7-day bar chart.
 ## Commands
 - `/tim` — show / hide the window
 - `/tim run` — start / stop a farm run (auto-starts on your first gather; also the Start/Stop button on the panel)
+- `/tim pause` — pause / resume the current run (also the Pause button; Reset button zeroes the run)
+- `/tim autostart` — toggle auto-starting a run on your first gather (also a checkbox in options)
 - `/tim config` — open the options window (also: the Options button on the panel)
 - `/tim reset` — clear all tracked data (also: right-click the window)
 - `/tim debug` — print each detected cast and recorded item

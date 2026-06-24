@@ -57,7 +57,7 @@ local DEFAULTS = {
   },
 }
 
-SG.session = { active = false, start = nil, lastActivity = 0, data = {}, events = {} }  -- the current run
+SG.session = { active = false, paused = false, start = nil, pausedAccum = 0, pauseStart = nil, lastActivity = 0, data = {}, events = {} }  -- the current run
 
 local GPH_FLOOR  = 120   -- seconds: minimum denominator, so an opening burst can't read absurdly high
 
@@ -117,7 +117,10 @@ SG.FmtDuration = FmtDuration
 
 local function StartRun(auto)
   SG.session.active       = true
+  SG.session.paused       = false
   SG.session.start        = GetTime()
+  SG.session.pausedAccum  = 0
+  SG.session.pauseStart   = nil
   SG.session.lastActivity = GetTime()
   wipe(SG.session.data)
   wipe(SG.session.events)
@@ -128,9 +131,10 @@ end
 
 local function StopRun()
   if not SG.session.active then Print("No run is active."); return end
-  SG.session.active = false
 
-  local dur   = math.max(0, GetTime() - (SG.session.start or GetTime()))
+  local dur   = SG.RunElapsed()
+  SG.session.active = false
+  SG.session.paused = false
   local total = SG.SessionValue()
   local gph   = total / (math.max(dur, GPH_FLOOR) / 3600)
 
@@ -146,7 +150,7 @@ end
 
 -- Called by the recorders: make sure a run is live so the loot has somewhere to go.
 local function EnsureRun()
-  if SG.session.active then return true end
+  if SG.session.active then return not SG.session.paused end
   if settings and settings.autoStartRun then StartRun(true); return true end
   return false
 end
@@ -154,8 +158,44 @@ end
 function SG.ToggleRun()
   if SG.session.active then StopRun() else StartRun(false) end
 end
-function SG.RunActive()  return SG.session.active end
-function SG.RunElapsed() return SG.session.active and (GetTime() - (SG.session.start or GetTime())) or 0 end
+function SG.RunActive() return SG.session.active end
+function SG.RunPaused() return SG.session.active and SG.session.paused end
+
+function SG.RunElapsed()
+  if not SG.session.active then return 0 end
+  local e = GetTime() - (SG.session.start or GetTime()) - (SG.session.pausedAccum or 0)
+  if SG.session.paused and SG.session.pauseStart then
+    e = e - (GetTime() - SG.session.pauseStart)
+  end
+  return math.max(0, e)
+end
+
+function SG.PauseRun()
+  if not SG.session.active then Print("No run is active."); return end
+  if SG.session.paused then
+    SG.session.pausedAccum = (SG.session.pausedAccum or 0) + (GetTime() - (SG.session.pauseStart or GetTime()))
+    SG.session.paused      = false
+    SG.session.pauseStart  = nil
+    Print("Run resumed.")
+  else
+    SG.session.paused     = true
+    SG.session.pauseStart = GetTime()
+    Print("Run paused.")
+  end
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
+function SG.ResetRun()
+  SG.session.start        = GetTime()
+  SG.session.lastActivity = GetTime()
+  SG.session.paused       = false
+  SG.session.pausedAccum  = 0
+  SG.session.pauseStart   = nil
+  wipe(SG.session.data)
+  wipe(SG.session.events)
+  Print("Run reset.")
+  if SG.RefreshUI then SG.RefreshUI() end
+end
 
 ----------------------------------------------------------------------
 -- Detect which gathering professions this character has
@@ -393,7 +433,9 @@ function SG.SessionGPH()
   for i = 1, #ev do recent = recent + ev[i].v end
   if recent == 0 then return 0 end
 
-  local span  = math.min(now - s.start, window)
+  local elapsed = SG.RunElapsed()
+  if elapsed <= 0 then elapsed = now - s.start end
+  local span  = math.min(elapsed, window)
   local denom = math.max(span, GPH_FLOOR)
   return recent / (denom / 3600)
 end
@@ -403,6 +445,9 @@ function SG.ResetData()
   TimeIsMoneyDB.items  = {}
   TimeIsMoneyDB.totals = {}
   SG.session.active = false
+  SG.session.paused = false
+  SG.session.pausedAccum = 0
+  SG.session.pauseStart  = nil
   SG.session.start  = nil
   SG.session.data   = {}
   SG.session.events = {}
@@ -413,6 +458,12 @@ end
 function SG.ToggleDebug()
   TimeIsMoneyDB.settings.debug = not TimeIsMoneyDB.settings.debug
   Print("debug = " .. tostring(TimeIsMoneyDB.settings.debug))
+end
+
+function SG.ToggleAutoStart()
+  settings.autoStartRun = not settings.autoStartRun
+  Print("Auto-start runs = " .. (settings.autoStartRun and "|cff8fd694on|r" or "|cff808080off|r"))
+  if SG.RefreshConfig then SG.RefreshConfig() end
 end
 
 ----------------------------------------------------------------------

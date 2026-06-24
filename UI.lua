@@ -1,7 +1,7 @@
 local ADDON, ns = ...
 local SG = ns
 
-local frame, gphFS, sessFS, todayFS, weekFS, allFS, breakdownFS, bars, runStatusFS, runBtn
+local frame, gphFS, sessFS, todayFS, weekFS, allFS, breakdownFS, bars, runStatusFS, runBtn, pauseBtn, resetBtn
 
 StaticPopupDialogs["TIMEISMONEY_RESET"] = {
   text = "Time Is Money: clear all tracked data?",
@@ -18,6 +18,12 @@ local function StatRow(label, y)
   v:SetPoint("TOPRIGHT", -16, y)
   v:SetJustifyH("RIGHT")
   return v
+end
+
+local function RunStatus()
+  if not SG.RunActive() then return "|cff808080Run stopped|r" end
+  if SG.RunPaused() then return "|cffffff00Run paused|r  " .. SG.FmtDuration(SG.RunElapsed()) end
+  return "|cff8fd694Run live|r  " .. SG.FmtDuration(SG.RunElapsed())
 end
 
 function SG.InitUI()
@@ -71,11 +77,7 @@ function SG.InitUI()
     if self._t > 1 then
       self._t = 0
       gphFS:SetText(SG.Money(SG.SessionGPH()) .. "/hr")
-      if runStatusFS then
-        runStatusFS:SetText(SG.RunActive()
-          and ("|cff8fd694Run live|r  " .. SG.FmtDuration(SG.RunElapsed()))
-          or  "|cff808080Run stopped|r")
-      end
+      if runStatusFS then runStatusFS:SetText(RunStatus()) end
     end
   end)
 
@@ -105,7 +107,7 @@ function SG.InitUI()
 
   local footer = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   footer:SetPoint("BOTTOM", 0, 30)
-  footer:SetText("/tim run  -  right-click resets")
+  footer:SetText("/tim  -  right-click clears ALL data")
 
   local opt = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
   opt:SetSize(64, 20)
@@ -114,10 +116,22 @@ function SG.InitUI()
   opt:SetScript("OnClick", function() SG.ToggleConfig() end)
 
   runBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-  runBtn:SetSize(84, 20)
+  runBtn:SetSize(70, 20)
   runBtn:SetPoint("BOTTOMLEFT", 10, 6)
   runBtn:SetText("Start Run")
   runBtn:SetScript("OnClick", function() SG.ToggleRun() end)
+
+  pauseBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+  pauseBtn:SetSize(58, 20)
+  pauseBtn:SetPoint("LEFT", runBtn, "RIGHT", 4, 0)
+  pauseBtn:SetText("Pause")
+  pauseBtn:SetScript("OnClick", function() SG.PauseRun() end)
+
+  resetBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+  resetBtn:SetSize(54, 20)
+  resetBtn:SetPoint("LEFT", pauseBtn, "RIGHT", 4, 0)
+  resetBtn:SetText("Reset")
+  resetBtn:SetScript("OnClick", function() SG.ResetRun() end)
 end
 
 function SG.RefreshUI()
@@ -128,12 +142,15 @@ function SG.RefreshUI()
   weekFS:SetText(SG.Money(SG.WeekValue()))
   allFS:SetText(SG.Money(SG.AllTimeValue()))
 
-  if runBtn then runBtn:SetText(SG.RunActive() and "Stop Run" or "Start Run") end
-  if runStatusFS then
-    runStatusFS:SetText(SG.RunActive()
-      and ("|cff8fd694Run live|r  " .. SG.FmtDuration(SG.RunElapsed()))
-      or  "|cff808080Run stopped|r")
+  if runBtn   then runBtn:SetText(SG.RunActive() and "Stop Run" or "Start Run") end
+  if pauseBtn then
+    pauseBtn:SetText(SG.RunPaused() and "Resume" or "Pause")
+    if SG.RunActive() then pauseBtn:Enable() else pauseBtn:Disable() end
   end
+  if resetBtn then
+    if SG.RunActive() then resetBtn:Enable() else resetBtn:Disable() end
+  end
+  if runStatusFS then runStatusFS:SetText(RunStatus()) end
 
   local parts = {}
   for _, p in ipairs(SG.PROFS) do
@@ -173,6 +190,10 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     StaticPopup_Show("TIMEISMONEY_RESET")
   elseif msg == "run" then
     SG.ToggleRun()
+  elseif msg == "pause" then
+    SG.PauseRun()
+  elseif msg == "autostart" then
+    SG.ToggleAutoStart()
   elseif msg == "debug" then
     SG.ToggleDebug()
   elseif msg == "config" or msg == "options" then

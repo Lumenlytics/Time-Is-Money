@@ -21,6 +21,8 @@ A bounded run, separate from the persistent all-time ledger.
 - `/tim run` (or the Start/Stop button) toggles a run; auto-starts on first
   gather/coin (toggle in options). "This run" + Gold/hour track the active run.
 - End-of-run summary printed on stop: duration, per-source totals, total, GPH.
+- Pause/Resume (`/tim pause` or button) freezes the run clock so AFK time doesn't
+  dilute GPH; the Reset button zeroes the current run without touching all-time data.
 - DEFERRED: auto-stop after N idle minutes — idle detection has annoying edge
   cases (would stop you mid-run if you fight without looting). Own pass later.
 - Net profit (minus repairs/consumables) arrives with #6 (net-gold session record).
@@ -79,7 +81,12 @@ gold out, repairs included.
   WANT `PLAYER_MONEY` deltas — every wallet change in and out is the point. Two
   different features, two different events; don't cross them.
 
-## 7. Gold-per-interval with a countdown timer  — Easy/Medium
+## 7. Gold-per-interval with a countdown timer  — ❌ DROPPED (redundant with runs)
+Was built, but a separate start/stop interval timer sat too close to the run
+controls and confused the panel. Removed in favor of run **Pause/Reset** (#2). The
+"countdown" idea returns later only as the gold-goal countdown for the ticker/sound.
+
+Original idea (kept for reference):
 A fixed-window earnings timer, separate from the rolling GPH.
 
 - Default 15 minutes, user-definable in options.
@@ -142,6 +149,20 @@ As features grow, one fixed panel won't fit. Direction:
 - **Ticker shows one mode at a time**: the on-screen ticker is tiny, so it shows a
   single readout with **click-to-cycle** (run GPH → interval countdown →
   gold-goal countdown). No room for tabs on the ticker itself.
+
+---
+
+## Tooltips & inline help  — Easy — ✅ APPROVED
+Discoverability problem (the auto-start checkbox was easy to miss). Add hover
+tooltips to every option, plus short section intros once the panel is tabbed.
+
+- `GameTooltip` on each control's OnEnter/OnLeave: one line of plain-language help
+  (e.g. "Auto-start a run the moment you gather or loot something"). Cheap to add.
+- This is also how we satisfy #6's required plain-language note by the durability
+  option — a tooltip is the natural home for it.
+- When the panel goes tabbed (see UI direction), give each tab/section a one-line
+  intro so its purpose reads at a glance.
+- Best built as one pass alongside the options/tabs rework, not piecemeal.
 
 ---
 
