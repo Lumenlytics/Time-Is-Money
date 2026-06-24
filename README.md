@@ -16,8 +16,13 @@ lands in the next ~2 seconds is attributed to that profession and valued using:
 Raw **coin you loot** in the field is tracked too (via `CHAT_MSG_MONEY`, so vendoring,
 repairs, and mail are not counted) and folded into every total as its own "Coin" source.
 
-The window shows combined **Gold/hour, This session, Today, Last 7 days, All-time**, a
-per-source session breakdown, and a 7-day bar chart.
+A **run** is a bounded farming session: it auto-starts on your first gather (or `/tim run`),
+and the **This run** total and **Gold/hour** track that run. Stop it with `/tim run` (or the
+Start/Stop button) to print an end-of-run summary. The Today / 7-day / All-time totals keep
+accumulating regardless of runs.
+
+The window shows combined **Gold/hour, This run, Today, Last 7 days, All-time**, a
+per-source run breakdown, and a 7-day bar chart.
 
 ## Install
 1. Drop the `TimeIsMoney` folder into `World of Warcraft\_retail_\Interface\AddOns\`.
@@ -27,6 +32,7 @@ per-source session breakdown, and a 7-day bar chart.
 
 ## Commands
 - `/tim` — show / hide the window
+- `/tim run` — start / stop a farm run (auto-starts on your first gather; also the Start/Stop button on the panel)
 - `/tim config` — open the options window (also: the Options button on the panel)
 - `/tim reset` — clear all tracked data (also: right-click the window)
 - `/tim debug` — print each detected cast and recorded item

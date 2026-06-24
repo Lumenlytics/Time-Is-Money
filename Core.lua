@@ -52,11 +52,12 @@ local DEFAULTS = {
     gphWindow = 10,             -- minutes: rolling window for the Gold/hour figure
     tsmSource = "DBMarket",     -- TSM price string used when TSM is installed
     minValue  = 0,              -- copper: ignore items whose per-unit value is below this
+    autoStartRun = true,        -- begin a run automatically on the first gather/coin
     profs     = { skinning = true, mining = true, herbalism = true, tailoring = true, money = true },
   },
 }
 
-SG.session = { start = nil, data = {}, events = {} }   -- data[prof]={value,count}; events={ {t,v} }
+SG.session = { active = false, start = nil, lastActivity = 0, data = {}, events = {} }  -- the current run
 
 local GPH_FLOOR  = 120   -- seconds: minimum denominator, so an opening burst can't read absurdly high
 
@@ -96,6 +97,65 @@ local function MergeDefaults(dst, src)
     end
   end
 end
+
+----------------------------------------------------------------------
+-- Run framing: a bounded farm run, distinct from the persistent ledger
+----------------------------------------------------------------------
+-- SG.session holds the *current run* - its per-source totals, value events (for
+-- GPH) and start time. The day/totals/items tables are the persistent all-time
+-- ledger and are written regardless of whether a run is active.
+local function FmtDuration(sec)
+  sec = math.floor(sec or 0)
+  local h = math.floor(sec / 3600)
+  local m = math.floor((sec % 3600) / 60)
+  local s = sec % 60
+  if h > 0 then return ("%dh %02dm"):format(h, m) end
+  if m > 0 then return ("%dm %02ds"):format(m, s) end
+  return ("%ds"):format(s)
+end
+SG.FmtDuration = FmtDuration
+
+local function StartRun(auto)
+  SG.session.active       = true
+  SG.session.start        = GetTime()
+  SG.session.lastActivity = GetTime()
+  wipe(SG.session.data)
+  wipe(SG.session.events)
+  Print(auto and "Run started automatically. Stop any time with /tim run."
+              or  "Run started.")
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
+local function StopRun()
+  if not SG.session.active then Print("No run is active."); return end
+  SG.session.active = false
+
+  local dur   = math.max(0, GetTime() - (SG.session.start or GetTime()))
+  local total = SG.SessionValue()
+  local gph   = total / (math.max(dur, GPH_FLOOR) / 3600)
+
+  Print(("Run ended - %s, %s total (%s/hr)"):format(FmtDuration(dur), Money(total), Money(gph)))
+  local parts = {}
+  for _, p in ipairs(SG.PROFS) do
+    local v = SG.SessionByProf(p)
+    if v > 0 then parts[#parts + 1] = ("%s %s"):format(SG.PROF_LABEL[p], Money(v)) end
+  end
+  if #parts > 0 then Print("   " .. table.concat(parts, "   ")) end
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
+-- Called by the recorders: make sure a run is live so the loot has somewhere to go.
+local function EnsureRun()
+  if SG.session.active then return true end
+  if settings and settings.autoStartRun then StartRun(true); return true end
+  return false
+end
+
+function SG.ToggleRun()
+  if SG.session.active then StopRun() else StartRun(false) end
+end
+function SG.RunActive()  return SG.session.active end
+function SG.RunElapsed() return SG.session.active and (GetTime() - (SG.session.start or GetTime())) or 0 end
 
 ----------------------------------------------------------------------
 -- Detect which gathering professions this character has
@@ -175,11 +235,13 @@ local function RecordLoot(prof, link, qty)
     it.value = it.value + total
   end
 
-  if not SG.session.start then SG.session.start = GetTime() end
-  local sb = Bucket(SG.session.data, prof)
-  sb.value = sb.value + total
-  sb.count = sb.count + qty
-  SG.session.events[#SG.session.events + 1] = { t = GetTime(), v = total }
+  if EnsureRun() then
+    local sb = Bucket(SG.session.data, prof)
+    sb.value = sb.value + total
+    sb.count = sb.count + qty
+    SG.session.events[#SG.session.events + 1] = { t = GetTime(), v = total }
+    SG.session.lastActivity = GetTime()
+  end
 
   if settings.debug then
     Print(("%s: %dx %s = %s (%s)"):format(prof, qty, link, Money(total), source))
@@ -220,11 +282,13 @@ local function RecordMoney(copper)
   tb.value = tb.value + copper
   tb.count = tb.count + 1
 
-  if not SG.session.start then SG.session.start = GetTime() end
-  local sb = Bucket(SG.session.data, "money")
-  sb.value = sb.value + copper
-  sb.count = sb.count + 1
-  SG.session.events[#SG.session.events + 1] = { t = GetTime(), v = copper }
+  if EnsureRun() then
+    local sb = Bucket(SG.session.data, "money")
+    sb.value = sb.value + copper
+    sb.count = sb.count + 1
+    SG.session.events[#SG.session.events + 1] = { t = GetTime(), v = copper }
+    SG.session.lastActivity = GetTime()
+  end
 
   if settings.debug then Print(("money: +%s"):format(Money(copper))) end
   if SG.RefreshUI then SG.RefreshUI() end
@@ -338,8 +402,9 @@ function SG.ResetData()
   TimeIsMoneyDB.days   = {}
   TimeIsMoneyDB.items  = {}
   TimeIsMoneyDB.totals = {}
-  SG.session.start = nil
-  SG.session.data  = {}
+  SG.session.active = false
+  SG.session.start  = nil
+  SG.session.data   = {}
   SG.session.events = {}
   if SG.RefreshUI then SG.RefreshUI() end
   Print("All tracked data cleared.")

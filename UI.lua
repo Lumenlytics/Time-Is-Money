@@ -1,7 +1,7 @@
 local ADDON, ns = ...
 local SG = ns
 
-local frame, gphFS, sessFS, todayFS, weekFS, allFS, breakdownFS, bars
+local frame, gphFS, sessFS, todayFS, weekFS, allFS, breakdownFS, bars, runStatusFS, runBtn
 
 StaticPopupDialogs["TIMEISMONEY_RESET"] = {
   text = "Time Is Money: clear all tracked data?",
@@ -53,10 +53,13 @@ function SG.InitUI()
   close:SetPoint("TOPRIGHT", 2, 2)
 
   gphFS   = StatRow("Gold / hour (10m)", -42)
-  sessFS  = StatRow("This session", -62)
+  sessFS  = StatRow("This run",     -62)
   todayFS = StatRow("Today",        -82)
   weekFS  = StatRow("Last 7 days",  -102)
   allFS   = StatRow("All-time",     -122)
+
+  runStatusFS = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  runStatusFS:SetPoint("TOPLEFT", 16, -26)
 
   breakdownFS = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   breakdownFS:SetPoint("TOPLEFT", 16, -146)
@@ -68,6 +71,11 @@ function SG.InitUI()
     if self._t > 1 then
       self._t = 0
       gphFS:SetText(SG.Money(SG.SessionGPH()) .. "/hr")
+      if runStatusFS then
+        runStatusFS:SetText(SG.RunActive()
+          and ("|cff8fd694Run live|r  " .. SG.FmtDuration(SG.RunElapsed()))
+          or  "|cff808080Run stopped|r")
+      end
     end
   end)
 
@@ -96,14 +104,20 @@ function SG.InitUI()
   end
 
   local footer = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  footer:SetPoint("BOTTOM", 0, 8)
-  footer:SetText("/tim  -  right-click to reset")
+  footer:SetPoint("BOTTOM", 0, 30)
+  footer:SetText("/tim run  -  right-click resets")
 
   local opt = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
   opt:SetSize(64, 20)
   opt:SetPoint("BOTTOMRIGHT", -10, 6)
   opt:SetText("Options")
   opt:SetScript("OnClick", function() SG.ToggleConfig() end)
+
+  runBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+  runBtn:SetSize(84, 20)
+  runBtn:SetPoint("BOTTOMLEFT", 10, 6)
+  runBtn:SetText("Start Run")
+  runBtn:SetScript("OnClick", function() SG.ToggleRun() end)
 end
 
 function SG.RefreshUI()
@@ -114,11 +128,18 @@ function SG.RefreshUI()
   weekFS:SetText(SG.Money(SG.WeekValue()))
   allFS:SetText(SG.Money(SG.AllTimeValue()))
 
+  if runBtn then runBtn:SetText(SG.RunActive() and "Stop Run" or "Start Run") end
+  if runStatusFS then
+    runStatusFS:SetText(SG.RunActive()
+      and ("|cff8fd694Run live|r  " .. SG.FmtDuration(SG.RunElapsed()))
+      or  "|cff808080Run stopped|r")
+  end
+
   local parts = {}
   for _, p in ipairs(SG.PROFS) do
     parts[#parts + 1] = ("%s %dg"):format(SG.PROF_LABEL[p], math.floor(SG.SessionByProf(p) / 10000))
   end
-  breakdownFS:SetText("Session:  " .. table.concat(parts, "   "))
+  breakdownFS:SetText("Run:  " .. table.concat(parts, "   "))
 
   local vals, maxV = {}, 1
   for i = 1, 7 do
@@ -150,6 +171,8 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
   msg = (msg or ""):lower():gsub("%s+", "")
   if msg == "reset" then
     StaticPopup_Show("TIMEISMONEY_RESET")
+  elseif msg == "run" then
+    SG.ToggleRun()
   elseif msg == "debug" then
     SG.ToggleDebug()
   elseif msg == "config" or msg == "options" then

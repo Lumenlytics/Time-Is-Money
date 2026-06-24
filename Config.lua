@@ -98,6 +98,8 @@ function SG.InitConfig()
     function() return S().profs.tailoring end, function(v) S().profs.tailoring = v end)
   Checkbox(cfg, 16, -86, "Coin (looted gold)",
     function() return S().profs.money end, function(v) S().profs.money = v end)
+  Checkbox(cfg, 200, -86, "Auto-start runs",
+    function() return S().autoStartRun end, function(v) S().autoStartRun = v end)
 
   -- GPH window
   Segmented(cfg, 16, -124, "Gold / hour window", {

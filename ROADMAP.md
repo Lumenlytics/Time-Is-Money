@@ -15,13 +15,15 @@ Track raw gold looted during a run, alongside the professions.
   `CHAT_MSG_MONEY` ("You loot X copper") so we only count *looted* coin, not
   every wallet change.
 
-## 2. Run framing: Start/Stop a farm run  — Easy
-Right now "session" = since login. A bounded run is more useful for GPH.
+## 2. Run framing: Start/Stop a farm run  — Easy — ✅ DONE
+A bounded run, separate from the persistent all-time ledger.
 
-- `/tim run` to start/stop; or auto-start on first gather, auto-stop after N
-  minutes idle.
-- End-of-run summary: items, cloth, ore, herbs, coin, total AH value, GPH,
-  minus repair/consumable costs = **net profit**.
+- `/tim run` (or the Start/Stop button) toggles a run; auto-starts on first
+  gather/coin (toggle in options). "This run" + Gold/hour track the active run.
+- End-of-run summary printed on stop: duration, per-source totals, total, GPH.
+- DEFERRED: auto-stop after N idle minutes — idle detection has annoying edge
+  cases (would stop you mid-run if you fight without looting). Own pass later.
+- Net profit (minus repairs/consumables) arrives with #6 (net-gold session record).
 
 ## 3. "Vendor-everything" estimate  — Easy  — ✅ APPROVED (replaces auto-vendor)
 Non-destructive. Sums the vendor sell price of items picked up this run and shows a
