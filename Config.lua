@@ -4,7 +4,7 @@ local SG = ns
 local cfg
 local refreshers = {}
 
-local function S() return GoldPerGatherDB.settings end
+local function S() return TimeIsMoneyDB.settings end
 
 local function Label(parent, x, y, text, font)
   local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontNormal")
@@ -60,8 +60,8 @@ end
 function SG.InitConfig()
   if cfg then return end
 
-  cfg = CreateFrame("Frame", "GoldPerGatherConfigFrame", UIParent, "BackdropTemplate")
-  cfg:SetSize(380, 320)
+  cfg = CreateFrame("Frame", "TimeIsMoneyConfigFrame", UIParent, "BackdropTemplate")
+  cfg:SetSize(380, 344)
   cfg:SetPoint("CENTER", 60, 0)
   cfg:SetMovable(true)
   cfg:EnableMouse(true)
@@ -81,13 +81,13 @@ function SG.InitConfig()
 
   local title = cfg:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOP", 0, -10)
-  title:SetText("|cff8fd694GoldPerGather|r  Options")
+  title:SetText("|cff8fd694Time Is Money|r  Options")
 
   local close = CreateFrame("Button", nil, cfg, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", 2, 2)
 
-  -- Professions
-  Label(cfg, 16, -44, "Track professions", "GameFontHighlight")
+  -- Income sources
+  Label(cfg, 16, -44, "Track income sources", "GameFontHighlight")
   Checkbox(cfg, 16, -62, "Skinning",
     function() return S().profs.skinning end, function(v) S().profs.skinning = v end)
   Checkbox(cfg, 102, -62, "Mining",
@@ -96,9 +96,11 @@ function SG.InitConfig()
     function() return S().profs.herbalism end, function(v) S().profs.herbalism = v end)
   Checkbox(cfg, 280, -62, "Tailoring",
     function() return S().profs.tailoring end, function(v) S().profs.tailoring = v end)
+  Checkbox(cfg, 16, -86, "Coin (looted gold)",
+    function() return S().profs.money end, function(v) S().profs.money = v end)
 
   -- GPH window
-  Segmented(cfg, 16, -104, "Gold / hour window", {
+  Segmented(cfg, 16, -124, "Gold / hour window", {
     { text = "5m",  value = 5,  w = 40 },
     { text = "10m", value = 10, w = 44 },
     { text = "15m", value = 15, w = 44 },
@@ -106,7 +108,7 @@ function SG.InitConfig()
   }, function() return S().gphWindow end, function(v) S().gphWindow = v end)
 
   -- TSM price source
-  Segmented(cfg, 16, -154, "TSM price source (used only if TSM is installed)", {
+  Segmented(cfg, 16, -174, "TSM price source (used only if TSM is installed)", {
     { text = "Market",     value = "DBMarket",          w = 60 },
     { text = "MinBuyout",  value = "DBMinBuyout",        w = 76 },
     { text = "RegionMkt",  value = "DBRegionMarketAvg",  w = 76 },
@@ -114,7 +116,7 @@ function SG.InitConfig()
   }, function() return S().tsmSource end, function(v) S().tsmSource = v end)
 
   -- Minimum value filter
-  Segmented(cfg, 16, -204, "Ignore items worth less than (per item)", {
+  Segmented(cfg, 16, -224, "Ignore items worth less than (per item)", {
     { text = "Off", value = 0,      w = 44 },
     { text = "1g",  value = 10000,  w = 40 },
     { text = "5g",  value = 50000,  w = 40 },
@@ -124,7 +126,7 @@ function SG.InitConfig()
 
   local note = cfg:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   note:SetPoint("BOTTOMLEFT", 16, 12)
-  note:SetText("Reopen any time with /gpg config")
+  note:SetText("Reopen any time with /tim config")
 
   SG.RefreshConfig()
 end

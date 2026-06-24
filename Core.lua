@@ -4,12 +4,15 @@ local SG = ns
 ----------------------------------------------------------------------
 -- Professions tracked
 ----------------------------------------------------------------------
-SG.PROFS = { "skinning", "mining", "herbalism", "tailoring" }
-SG.PROF_LABEL = { skinning = "Skinning", mining = "Mining", herbalism = "Herbalism", tailoring = "Tailoring" }
+-- "money" is a pseudo-profession: raw coin looted in the field. It flows through
+-- the same buckets as the gathering professions, so it shows up in every total,
+-- the session breakdown, the daily chart, and the GPH figure automatically.
+SG.PROFS = { "skinning", "mining", "herbalism", "tailoring", "money" }
+SG.PROF_LABEL = { skinning = "Skinning", mining = "Mining", herbalism = "Herbalism", tailoring = "Tailoring", money = "Coin" }
 
 local SKILL_LINE = { [393] = "skinning", [186] = "mining", [182] = "herbalism" }
 
--- Fallback cast-name -> profession (English; extend via /gpg debug if a locale differs)
+-- Fallback cast-name -> profession (English; extend via /tim debug if a locale differs)
 local FALLBACK_NAMES = {
   ["Skinning"]       = "skinning",
   ["Mining"]         = "mining",
@@ -49,7 +52,7 @@ local DEFAULTS = {
     gphWindow = 10,             -- minutes: rolling window for the Gold/hour figure
     tsmSource = "DBMarket",     -- TSM price string used when TSM is installed
     minValue  = 0,              -- copper: ignore items whose per-unit value is below this
-    profs     = { skinning = true, mining = true, herbalism = true, tailoring = true },
+    profs     = { skinning = true, mining = true, herbalism = true, tailoring = true, money = true },
   },
 }
 
@@ -66,7 +69,7 @@ local warnedNoSource = false
 ----------------------------------------------------------------------
 -- Utilities
 ----------------------------------------------------------------------
-local function Print(msg) print("|cff8fd694GoldPerGather|r: " .. tostring(msg)) end
+local function Print(msg) print("|cff8fd694Time Is Money|r: " .. tostring(msg)) end
 SG.Print = Print
 
 local function Today() return date("%Y-%m-%d") end
@@ -152,21 +155,21 @@ local function RecordLoot(prof, link, qty)
 
   local today = Today()
 
-  local day = GoldPerGatherDB.days[today]
-  if not day then day = {}; GoldPerGatherDB.days[today] = day end
+  local day = TimeIsMoneyDB.days[today]
+  if not day then day = {}; TimeIsMoneyDB.days[today] = day end
   local db = Bucket(day, prof)
   db.value = db.value + total
   db.count = db.count + qty
 
-  local tb = Bucket(GoldPerGatherDB.totals, prof)
+  local tb = Bucket(TimeIsMoneyDB.totals, prof)
   tb.value = tb.value + total
   tb.count = tb.count + qty
 
   if itemID then
-    local it = GoldPerGatherDB.items[itemID]
+    local it = TimeIsMoneyDB.items[itemID]
     if not it then
       it = { name = (C_Item.GetItemInfo(link)) or link, count = 0, value = 0, prof = prof }
-      GoldPerGatherDB.items[itemID] = it
+      TimeIsMoneyDB.items[itemID] = it
     end
     it.count = it.count + qty
     it.value = it.value + total
@@ -182,6 +185,48 @@ local function RecordLoot(prof, link, qty)
     Print(("%s: %dx %s = %s (%s)"):format(prof, qty, link, Money(total), source))
   end
 
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
+----------------------------------------------------------------------
+-- Recording coin (looted gold)
+----------------------------------------------------------------------
+-- CHAT_MSG_MONEY carries a localized money string ("You loot 1 Gold, 20 Silver").
+-- Build patterns from the game's own format globals so it stays locale-safe, the
+-- same way the item-loot patterns below do.
+local function AmountPattern(fmt) return (fmt or "%d"):gsub("%%d", "(%%d+)") end
+local GOLD_PAT   = AmountPattern(GOLD_AMOUNT)     -- "(%d+) Gold"
+local SILVER_PAT = AmountPattern(SILVER_AMOUNT)   -- "(%d+) Silver"
+local COPPER_PAT = AmountPattern(COPPER_AMOUNT)   -- "(%d+) Copper"
+
+local function ParseMoney(text)
+  local g = tonumber(text:match(GOLD_PAT))   or 0
+  local s = tonumber(text:match(SILVER_PAT)) or 0
+  local c = tonumber(text:match(COPPER_PAT)) or 0
+  return g * 10000 + s * 100 + c
+end
+
+local function RecordMoney(copper)
+  if not copper or copper <= 0 then return end
+
+  local today = Today()
+  local day = TimeIsMoneyDB.days[today]
+  if not day then day = {}; TimeIsMoneyDB.days[today] = day end
+  local db = Bucket(day, "money")
+  db.value = db.value + copper
+  db.count = db.count + 1
+
+  local tb = Bucket(TimeIsMoneyDB.totals, "money")
+  tb.value = tb.value + copper
+  tb.count = tb.count + 1
+
+  if not SG.session.start then SG.session.start = GetTime() end
+  local sb = Bucket(SG.session.data, "money")
+  sb.value = sb.value + copper
+  sb.count = sb.count + 1
+  SG.session.events[#SG.session.events + 1] = { t = GetTime(), v = copper }
+
+  if settings.debug then Print(("money: +%s"):format(Money(copper))) end
   if SG.RefreshUI then SG.RefreshUI() end
 end
 
@@ -234,7 +279,7 @@ end
 -- Public helpers used by the UI
 ----------------------------------------------------------------------
 local function SumDay(day)
-  local d, s = GoldPerGatherDB.days[day], 0
+  local d, s = TimeIsMoneyDB.days[day], 0
   if d then for _, p in ipairs(SG.PROFS) do if d[p] then s = s + d[p].value end end end
   return s
 end
@@ -251,7 +296,7 @@ end
 function SG.AllTimeValue()
   local s = 0
   for _, p in ipairs(SG.PROFS) do
-    local t = GoldPerGatherDB.totals[p]; if t then s = s + t.value end
+    local t = TimeIsMoneyDB.totals[p]; if t then s = s + t.value end
   end
   return s
 end
@@ -290,9 +335,9 @@ function SG.SessionGPH()
 end
 
 function SG.ResetData()
-  GoldPerGatherDB.days   = {}
-  GoldPerGatherDB.items  = {}
-  GoldPerGatherDB.totals = {}
+  TimeIsMoneyDB.days   = {}
+  TimeIsMoneyDB.items  = {}
+  TimeIsMoneyDB.totals = {}
   SG.session.start = nil
   SG.session.data  = {}
   SG.session.events = {}
@@ -301,8 +346,8 @@ function SG.ResetData()
 end
 
 function SG.ToggleDebug()
-  GoldPerGatherDB.settings.debug = not GoldPerGatherDB.settings.debug
-  Print("debug = " .. tostring(GoldPerGatherDB.settings.debug))
+  TimeIsMoneyDB.settings.debug = not TimeIsMoneyDB.settings.debug
+  Print("debug = " .. tostring(TimeIsMoneyDB.settings.debug))
 end
 
 ----------------------------------------------------------------------
@@ -311,7 +356,7 @@ end
 local function ImportNewStructure(src)
   for day, d in pairs(src.days or {}) do
     if type(d) == "table" then
-      local nd = GoldPerGatherDB.days[day] or {}
+      local nd = TimeIsMoneyDB.days[day] or {}
       for _, p in ipairs(SG.PROFS) do
         if type(d[p]) == "table" then
           local b = Bucket(nd, p)
@@ -319,12 +364,12 @@ local function ImportNewStructure(src)
           b.count = b.count + (d[p].count or 0)
         end
       end
-      GoldPerGatherDB.days[day] = nd
+      TimeIsMoneyDB.days[day] = nd
     end
   end
   for _, p in ipairs(SG.PROFS) do
     if type(src.totals) == "table" and type(src.totals[p]) == "table" then
-      local t = Bucket(GoldPerGatherDB.totals, p)
+      local t = Bucket(TimeIsMoneyDB.totals, p)
       t.value = t.value + (src.totals[p].value or 0)
       t.count = t.count + (src.totals[p].count or 0)
     end
@@ -334,22 +379,22 @@ end
 local function ImportFlatSkinning(src)
   for day, d in pairs(src.days or {}) do
     if type(d) == "table" and type(d.value) == "number" then
-      local nd = GoldPerGatherDB.days[day] or {}
+      local nd = TimeIsMoneyDB.days[day] or {}
       local b = Bucket(nd, "skinning")
       b.value = b.value + d.value
       b.count = b.count + (d.count or 0)
-      GoldPerGatherDB.days[day] = nd
+      TimeIsMoneyDB.days[day] = nd
     end
   end
   if type(src.totalValue) == "number" then
-    local t = Bucket(GoldPerGatherDB.totals, "skinning")
+    local t = Bucket(TimeIsMoneyDB.totals, "skinning")
     t.value = t.value + src.totalValue
     t.count = t.count + (src.totalCount or 0)
   end
 end
 
 local function MigrateOldData()
-  if GoldPerGatherDB.__migrated then return end
+  if TimeIsMoneyDB.__migrated then return end
   if type(GatherGoldDB) == "table" then
     ImportNewStructure(GatherGoldDB)
     Print("Imported your previous GatherGold data.")
@@ -357,7 +402,7 @@ local function MigrateOldData()
     ImportFlatSkinning(SkinnerGoldDB)
     Print("Imported your previous SkinnerGold data.")
   end
-  GoldPerGatherDB.__migrated = true
+  TimeIsMoneyDB.__migrated = true
 end
 
 ----------------------------------------------------------------------
@@ -370,13 +415,14 @@ f:RegisterEvent("PLAYER_LOGIN")
 f:RegisterEvent("SKILL_LINES_CHANGED")
 f:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 f:RegisterEvent("CHAT_MSG_LOOT")
+f:RegisterEvent("CHAT_MSG_MONEY")
 
 f:SetScript("OnEvent", function(_, event, ...)
   if event == "ADDON_LOADED" then
     if ... == ADDON then
-      GoldPerGatherDB = GoldPerGatherDB or {}
-      MergeDefaults(GoldPerGatherDB, DEFAULTS)
-      settings = GoldPerGatherDB.settings
+      TimeIsMoneyDB = TimeIsMoneyDB or {}
+      MergeDefaults(TimeIsMoneyDB, DEFAULTS)
+      settings = TimeIsMoneyDB.settings
       MigrateOldData()
     end
 
@@ -403,5 +449,10 @@ f:SetScript("OnEvent", function(_, event, ...)
 
   elseif event == "CHAT_MSG_LOOT" then
     OnLoot((...))
+
+  elseif event == "CHAT_MSG_MONEY" then
+    if settings and settings.profs and settings.profs.money then
+      RecordMoney(ParseMoney((...)))
+    end
   end
 end)

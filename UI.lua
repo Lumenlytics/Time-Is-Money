@@ -3,8 +3,8 @@ local SG = ns
 
 local frame, gphFS, sessFS, todayFS, weekFS, allFS, breakdownFS, bars
 
-StaticPopupDialogs["GOLDPERGATHER_RESET"] = {
-  text = "GoldPerGather: clear all tracked data?",
+StaticPopupDialogs["TIMEISMONEY_RESET"] = {
+  text = "Time Is Money: clear all tracked data?",
   button1 = YES, button2 = NO,
   OnAccept = function() SG.ResetData() end,
   timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
@@ -23,7 +23,7 @@ end
 function SG.InitUI()
   if frame then return end
 
-  frame = CreateFrame("Frame", "GoldPerGatherFrame", UIParent, "BackdropTemplate")
+  frame = CreateFrame("Frame", "TimeIsMoneyFrame", UIParent, "BackdropTemplate")
   frame:SetSize(290, 360)
   frame:SetPoint("CENTER")
   frame:SetMovable(true)
@@ -42,12 +42,12 @@ function SG.InitUI()
   frame:Hide()
 
   frame:SetScript("OnMouseUp", function(_, button)
-    if button == "RightButton" then StaticPopup_Show("GOLDPERGATHER_RESET") end
+    if button == "RightButton" then StaticPopup_Show("TIMEISMONEY_RESET") end
   end)
 
   local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOP", 0, -10)
-  title:SetText("|cff8fd694GoldPerGather|r")
+  title:SetText("|cff8fd694Time Is Money|r")
 
   local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", 2, 2)
@@ -97,7 +97,7 @@ function SG.InitUI()
 
   local footer = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   footer:SetPoint("BOTTOM", 0, 8)
-  footer:SetText("/gpg  -  right-click to reset")
+  footer:SetText("/tim  -  right-click to reset")
 
   local opt = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
   opt:SetSize(64, 20)
@@ -144,12 +144,12 @@ end
 ----------------------------------------------------------------------
 -- Slash commands
 ----------------------------------------------------------------------
-SLASH_GOLDPERGATHER1 = "/gpg"
-SLASH_GOLDPERGATHER2 = "/goldpergather"
-SlashCmdList["GOLDPERGATHER"] = function(msg)
+SLASH_TIMEISMONEY1 = "/tim"
+SLASH_TIMEISMONEY2 = "/timeismoney"
+SlashCmdList["TIMEISMONEY"] = function(msg)
   msg = (msg or ""):lower():gsub("%s+", "")
   if msg == "reset" then
-    StaticPopup_Show("GOLDPERGATHER_RESET")
+    StaticPopup_Show("TIMEISMONEY_RESET")
   elseif msg == "debug" then
     SG.ToggleDebug()
   elseif msg == "config" or msg == "options" then
