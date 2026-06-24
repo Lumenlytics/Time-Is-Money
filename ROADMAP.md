@@ -159,6 +159,26 @@ about how the stuff you GATHER is valued.
 
 ---
 
+## 11. Count incidental run loot (greys, BoEs, mob drops)  — Medium — ✅ APPROVED
+The gap behind the "I vendored stuff and it wasn't tracked" question. Right now
+ONLY gathered items (ore/herb/cloth/leather via a gather cast), tailoring cloth,
+and coin are counted. The grey trash, BoE drops, and other loot that fills your
+bags on a run are currently **ignored** — but that's real profit.
+
+- Add a **"Count looted drops"** toggle: while a run is active, value everything
+  else you loot and add it to a separate **"Drops"** source/line.
+- Valuation per #10: greys/poor quality → vendor price (no AH market); higher
+  quality → AH price if it sells (TSM sale-rate), else vendor.
+- **Blacklist + quality floor**: exclude items you keep (gear you'll equip,
+  transmog, quest items). "Soulbound and equippable" is a good auto-skip default.
+- Off by default (some want pure gather numbers); shows as its own breakdown line
+  so it never muddies the gather GPH unless you opt in.
+- This is the foundation that makes #3 (vendor-everything) and #10 meaningful on
+  trash, not just gathered mats. Mechanically: `OnLoot` currently drops anything
+  without a recent gather cast — this adds a path for non-gather loot.
+
+---
+
 ## UI / layout direction
 As features grow, one fixed panel won't fit. Direction:
 
