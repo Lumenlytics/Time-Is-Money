@@ -23,15 +23,18 @@ Right now "session" = since login. A bounded run is more useful for GPH.
 - End-of-run summary: items, cloth, ore, herbs, coin, total AH value, GPH,
   minus repair/consumable costs = **net profit**.
 
-## 3. Liquidation mode — vendor junk at a merchant  — Medium
-Toggle. While the mode is ON and a merchant window is open, auto-sell low-value
-items and credit the gold to the run.
+## 3. "Vendor-everything" estimate  — Easy  — ✅ APPROVED (replaces auto-vendor)
+Non-destructive. Sums the vendor sell price of items picked up this run and shows a
+single figure: *"If you vendored everything, you'd get X."* Nothing is ever sold.
 
-- `MERCHANT_SHOW` → scan bags → `C_Container.UseContainerItem` to sell.
-- Default to **grey (poor) quality only**. Optional higher thresholds behind a
-  separate, clearly-labeled toggle.
-- Vendor buyback holds 12 slots, so accidental sells are partly recoverable —
-  but treat this as destructive: see Safety below.
+- Vendor price = `select(11, C_Item.GetItemInfo(link))` — the addon already uses
+  this as its AH-value fallback. Sum it over the run's picked-up items.
+- Toggle the readout on/off via an options checkbox and/or a keybind.
+- Respects the blacklist (below): never-sell items (transmog, valuable BoEs) are
+  excluded from the total, so it reflects what you'd *actually* vendor.
+- ❌ The earlier auto-vendor/liquidation idea is **dropped** — too destructive for
+  the payoff. This advisory number gives the useful part (what your junk is worth)
+  with zero risk.
 
 ## 4. Vendor-vs-AH disposition (decision support)  — Medium — ✅ APPROVED
 We already compute AH value via TSM / Auctionator in `AHValue()`. Use it to
@@ -39,8 +42,9 @@ We already compute AH value via TSM / Auctionator in `AHValue()`. Use it to
 
 - For each looted item: compare vendor price vs AH value (× a haircut for cuts/
   undercut). Tag each as **Vendor**, **Auction**, or **Keep**.
-- Liquidation mode (#3) then only vendors the "Vendor" items and leaves the
-  "Auction" ones in your bags.
+- Purely advisory now (no auto-selling): the tags just tell you what's worth
+  vendoring vs holding for the AH. Pairs naturally with #3's vendor-everything
+  total.
 - End-of-run: "X items worth ~Yg are better sold on the AH" report.
 
 ## 5. Auto-post to the Auction House  — Rabbit hole — ❌ DROPPED (defer to TSM/Auctionator)
@@ -102,9 +106,10 @@ As features grow, one fixed panel won't fit. Direction:
 
 ## More ideas (mine)
 
-- **True run-profit GPH** — ✅ APPROVED. coin + item AH value + liquidated vendor
-  gold − repairs − consumables, all in one /hr number. The headline metric a gold
-  farmer actually wants.
+- **True run-profit GPH** — ✅ APPROVED. coin + item value (best of AH-or-vendor
+  per item, via #4) − repairs − consumables, all in one /hr number. The headline
+  metric a gold farmer actually wants. (No "liquidated gold" line now that
+  auto-vendor is dropped — value is potential, not realized.)
 - **Per-zone / per-target stats** — ✅ APPROVED. which zone or mob gives the best
   GPH. Capture zone (`C_Map.GetBestMapForUnit`) and/or target name at loot time.
 - **On-screen ticker** — ✅ APPROVED. tiny movable text showing live run gold +
@@ -112,8 +117,9 @@ As features grow, one fixed panel won't fit. Direction:
     - a **start/stop run timer**, and
     - a **countdown timer toward a gold goal** ("reach N gold") — shares the
       countdown engine with #7.
-- **Item blacklist / whitelist** — ✅ APPROVED. never-sell list (transmog,
-  valuable BoEs) + always-sell list, editable in options. Refinements:
+- **Item blacklist / whitelist** — ✅ APPROVED. Now feeds the *estimate*, not an
+  auto-seller: blacklist = never-vendor (excluded from #3's total, tagged Keep in
+  #4); whitelist = always count as vendor. Editable in options. Refinements:
     - **autocomplete item names as you type**, and
     - **shift-click an item** (bag slot or chat link) to drop it straight into the
       black/white list — the standard WoW "insert item reference" gesture.
@@ -123,14 +129,8 @@ As features grow, one fixed panel won't fit. Direction:
 
 ---
 
-## Safety rules for any auto-sell feature (#3, #4)
-Selling items is destructive and hard to undo — bake these in from the start:
-
-- **Off by default**, with a clear toggle and a one-time "are you sure" the first
-  time it's enabled.
-- **Quality floor** (grey only) unless explicitly raised.
-- **Blacklist** respected before anything is sold.
-- **Dry-run mode**: log "would have sold: …" without selling, so behavior can be
-  verified before trusting it.
-- **Sell log**: print/keep a record of what was auto-sold each run for review
-  (vendor buyback only holds the last 12 items).
+## Safety rules for auto-sell features — N/A (parked)
+No feature sells items anymore: #3 became a non-destructive estimate and #4 is
+advisory. Nothing here ever modifies your bags. Keep these rules on hand **only if
+an auto-sell feature is ever revived**: off by default, quality floor (grey only),
+blacklist respected, dry-run mode, and a sell log (vendor buyback holds only 12).
