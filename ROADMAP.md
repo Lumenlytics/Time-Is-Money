@@ -136,6 +136,29 @@ fallback; this just gives the user the choice.
 
 ---
 
+## 10. Valuation policy — what actually counts toward your total  — Medium — ✅ APPROVED
+Consolidates #3 (vendor estimate), #4 (vendor-vs-AH), #9 (price source) and the
+blacklist into one coherent "how is each gathered item valued" system.
+
+Today each gathered item is valued at its AH price (TSM/Auctionator) if available,
+else vendor price; coin adds on top. This makes that explicit and controllable:
+
+- **Count vendor value** (checkbox): include items at their vendor sell price.
+- **Count AH value** (checkbox): include items at their AH price (TSM/Auctionator).
+- **Sale-rate gate (TSM)** — the key refinement: only use the AH price for items
+  that actually *sell* (TSM sale rate above a threshold). Items that rarely move
+  fall back to vendor price (or are excluded), so an AH price you can't realize
+  doesn't inflate your total. "Sells easily" → count AH; "dead listing" → vendor.
+- **Per-item override / blacklist**: mark items Use-AH / Vendor-only / Exclude.
+  Excluded items don't count toward the total at all. Shift-click to add +
+  autocomplete (this *is* the blacklist/whitelist idea, applied to valuation).
+
+Note: this is separate from tracking realized *income streams* (actual vendor
+sales, AH-sale mail #8) — those stay opt-in and out of the farm GPH. #10 is purely
+about how the stuff you GATHER is valued.
+
+---
+
 ## UI / layout direction
 As features grow, one fixed panel won't fit. Direction:
 
