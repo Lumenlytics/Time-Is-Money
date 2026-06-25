@@ -13,8 +13,18 @@ lands in the next ~2 seconds is attributed to that profession and valued using:
 2. **Auctionator** if installed
 3. Vendor price as a last-resort fallback
 
+**Item pricing mode** (option, default "AH if it sells"): choose how items are valued —
+**Vendor** (vendor price for everything), **AH if it sells** (greys and random weapon/armor
+drops use vendor price — nobody buys old-expansion gear — while mats and trade goods use AH; if
+TSM region sale data is present, gear that genuinely sells is let through), or **AH always** (AH
+price regardless). Works without TSM. Set with `/tim pricing vendor|sells|ah`.
+
 Raw **coin you loot** in the field is tracked too (via `CHAT_MSG_MONEY`, so vendoring,
 repairs, and mail are not counted) and folded into every total as its own "Coin" source.
+
+Optionally (off by default — `/tim drops` or the options checkbox), the grey/BoE **trash you
+loot during a run** is valued too — greys at vendor price, sellable items at AH price — and
+shown as its own **"Drops"** source. Only quest items are skipped — BoP gear is counted, since you vendor it.
 
 A **run** is a bounded farming session: it auto-starts on your first gather (or `/tim run`),
 and the **This run** total and **Gold/hour** track that run. Stop it with `/tim run` (or the
@@ -35,6 +45,9 @@ per-source run breakdown, and a 7-day bar chart.
 - `/tim run` — start / stop a farm run (auto-starts on your first gather; also the Start/Stop button on the panel)
 - `/tim pause` — pause / resume the current run (also the Pause button; Reset button zeroes the run)
 - `/tim autostart` — toggle auto-starting a run on your first gather (also a checkbox in options)
+- `/tim drops` — toggle counting incidental run loot (greys / BoEs) as a "Drops" source (also a checkbox in options)
+- `/tim pricing vendor|sells|ah` — item pricing mode: Vendor only · AH if it sells (sale-rate gated) · AH always (also in options)
+- `/tim salerate <n>` — for "sells" mode: min TSM sales/day to treat an item as sellable (default 0.5)
 - `/tim config` — open the options window (also: the Options button on the panel)
 - `/tim reset` — clear all tracked data (also: right-click the window)
 - `/tim debug` — print each detected cast and recorded item

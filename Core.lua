@@ -7,8 +7,8 @@ local SG = ns
 -- "money" is a pseudo-profession: raw coin looted in the field. It flows through
 -- the same buckets as the gathering professions, so it shows up in every total,
 -- the session breakdown, the daily chart, and the GPH figure automatically.
-SG.PROFS = { "skinning", "mining", "herbalism", "tailoring", "money" }
-SG.PROF_LABEL = { skinning = "Skinning", mining = "Mining", herbalism = "Herbalism", tailoring = "Tailoring", money = "Coin" }
+SG.PROFS = { "skinning", "mining", "herbalism", "tailoring", "money", "drops" }
+SG.PROF_LABEL = { skinning = "Skinning", mining = "Mining", herbalism = "Herbalism", tailoring = "Tailoring", money = "Coin", drops = "Drops" }
 
 local SKILL_LINE = { [393] = "skinning", [186] = "mining", [182] = "herbalism" }
 
@@ -53,6 +53,9 @@ local DEFAULTS = {
     tsmSource = "DBMarket",     -- TSM price string used when TSM is installed
     minValue  = 0,              -- copper: ignore items whose per-unit value is below this
     autoStartRun = true,        -- begin a run automatically on the first gather/coin
+    countDrops   = false,       -- count incidental run loot (greys/BoEs) into a "drops" source
+    priceMode    = "sells",     -- "vendor" | "sells" (AH if it sells) | "ah" (AH always)
+    saleRateMin  = 0.5,         -- "sells" mode: TSM region sold-per-day below this -> vendor price
     profs     = { skinning = true, mining = true, herbalism = true, tailoring = true, money = true },
   },
 }
@@ -215,7 +218,46 @@ end
 ----------------------------------------------------------------------
 -- Valuation: Auction House via TSM / Auctionator, vendor as fallback
 ----------------------------------------------------------------------
+-- TSM region "sold per day" if available (needs the TSM Desktop App sync); nil otherwise.
+local function TSMSoldPerDay(link)
+  if not (TSM_API and TSM_API.ToItemString and TSM_API.GetCustomPriceValue) then return nil end
+  local ok, itemString = pcall(TSM_API.ToItemString, link)
+  if not ok or not itemString then return nil end
+  local ok2, spd = pcall(TSM_API.GetCustomPriceValue, "DBRegionSoldPerDay", itemString)
+  if ok2 and type(spd) == "number" then return spd end
+  return nil
+end
+
+-- "Will this actually sell on the AH?" Greys can't be auctioned. Random weapons/
+-- armor rarely sell at their listed "market" price, so they use vendor unless TSM
+-- region sale data clears the bar. Mats and everything else default to AH. Works
+-- with no TSM region data (the quality/class rule); sale data only refines gear.
+local function SellsOnAH(link)
+  local _, _, quality, _, _, _, _, _, _, _, _, classID = C_Item.GetItemInfo(link)
+  if quality == 0 then return false end                 -- poor (grey): not auctionable
+  if classID == 2 or classID == 4 then                  -- weapon / armor (gear)
+    local spd = TSMSoldPerDay(link)
+    return type(spd) == "number" and spd >= (settings.saleRateMin or 0.5)
+  end
+  return true                                           -- mats / trade goods / misc
+end
+
 local function AHValue(link, itemID)
+  local mode   = settings.priceMode or "sells"
+  local vendor = select(11, C_Item.GetItemInfo(link)) or 0
+
+  -- A) Vendor only: never use AH prices.
+  if mode == "vendor" then
+    return vendor, "vendor"
+  end
+
+  -- B) "AH if it sells": greys aren't auctionable and random gear rarely sells at
+  -- its listed price, so those fall back to vendor. Mats use AH. (See SellsOnAH.)
+  if mode == "sells" and not SellsOnAH(link) then
+    return vendor, "vendor (won't sell)"
+  end
+
+  -- AH price: TSM market -> Auctionator -> vendor fallback.
   if TSM_API and TSM_API.ToItemString then
     local ok, itemString = pcall(TSM_API.ToItemString, link)
     if ok and itemString then
@@ -228,8 +270,7 @@ local function AHValue(link, itemID)
     local v = Auctionator.API.v1.GetAuctionPriceByItemID(ADDON, itemID)
     if v and v > 0 then return v, "Auctionator" end
   end
-  local sell = select(11, C_Item.GetItemInfo(link))
-  if sell and sell > 0 then return sell, "vendor" end
+  if vendor > 0 then return vendor, "vendor" end
   return 0, "none"
 end
 
@@ -349,19 +390,33 @@ local function IsCloth(itemID)
   return classID == 7 and subClassID == 5   -- Trade Goods > Cloth
 end
 
+-- Incidental run loot (greys, BoEs, BoP gear, mob drops). Only quest items are
+-- skipped (unsellable). BoP gear IS counted - farmers vendor it (this run's pile
+-- sold for 132g). A "keep these" blacklist + quality floor come with #10; the
+-- actual vendor-sale reconciliation is Stage 2.
+local function IsCountableDrop(link, itemID)
+  if not itemID then return false end
+  local classID = select(12, C_Item.GetItemInfo(link))
+  if classID == 12 then return false end   -- Quest item (unsellable)
+  return true
+end
+
 local function OnLoot(msg)
   local link, qty = msg:match(PAT_MULTI)
   if not link then link = msg:match(PAT_SINGLE); qty = 1 end
   if not link then return end
 
+  local itemID = tonumber(link:match("|Hitem:(%d+):"))
   local prof
   if lastGatherProf and (GetTime() - lastGatherAt) <= (settings.window or 2.0) then
     -- A gather (skinning/mining/herbalism) just happened; this loot belongs to it.
     prof = lastGatherProf
-  elseif settings.profs and settings.profs.tailoring then
+  elseif settings.profs and settings.profs.tailoring and IsCloth(itemID) then
     -- No active gather: cloth picked up off a kill counts as tailoring farming.
-    local itemID = tonumber(link:match("|Hitem:(%d+):"))
-    if IsCloth(itemID) then prof = "tailoring" end
+    prof = "tailoring"
+  elseif settings.countDrops and SG.RunActive() and not SG.RunPaused() and IsCountableDrop(link, itemID) then
+    -- Incidental loot during a run: greys, BoEs, etc. -> the "drops" source.
+    prof = "drops"
   end
 
   if not prof then return end
@@ -464,6 +519,53 @@ function SG.ToggleAutoStart()
   settings.autoStartRun = not settings.autoStartRun
   Print("Auto-start runs = " .. (settings.autoStartRun and "|cff8fd694on|r" or "|cff808080off|r"))
   if SG.RefreshConfig then SG.RefreshConfig() end
+end
+
+function SG.ToggleDrops()
+  settings.countDrops = not settings.countDrops
+  Print("Count looted drops = " .. (settings.countDrops and "|cff8fd694on|r" or "|cff808080off|r"))
+  if SG.RefreshConfig then SG.RefreshConfig() end
+end
+
+function SG.SetPriceMode(arg)
+  arg = (arg or ""):lower()
+  if arg ~= "vendor" and arg ~= "sells" and arg ~= "ah" then
+    Print("Item pricing is '" .. (settings.priceMode or "sells") .. "'. Use: /tim pricing vendor | sells | ah")
+    return
+  end
+  settings.priceMode = arg
+  Print("Item pricing = |cff8fd694" .. arg .. "|r")
+  if SG.RefreshConfig then SG.RefreshConfig() end
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
+function SG.SetSaleRate(arg)
+  local n = tonumber(arg)
+  if not n or n < 0 then
+    Print(("Sale-rate threshold is %.2f sales/day. Set with: /tim salerate 0.5"):format(settings.saleRateMin or 0.5))
+    return
+  end
+  settings.saleRateMin = n
+  Print(("Sale-rate threshold = %.2f sales/day (items selling slower use vendor price)."):format(n))
+end
+
+-- Diagnostic: shift-click an item after the command to see exactly what TSM returns.
+function SG.PriceTest(arg)
+  if not arg or arg == "" then
+    Print("Usage: /tim pricetest <shift-click an item into chat>")
+    return
+  end
+  if not (TSM_API and TSM_API.ToItemString and TSM_API.GetCustomPriceValue) then
+    Print("TSM is not installed - can't query sale data.")
+    return
+  end
+  local ok, itemString = pcall(TSM_API.ToItemString, arg)
+  if not ok or not itemString then Print("Couldn't resolve that item."); return end
+  Print("pricetest |cffffd100" .. tostring(itemString) .. "|r")
+  for _, src in ipairs({ "DBMarket", "DBRegionSoldPerDay", "DBRegionSaleRate", "DBRegionSalePercent" }) do
+    local ok2, v = pcall(TSM_API.GetCustomPriceValue, src, itemString)
+    Print(("  %s = %s  (ok=%s)"):format(src, tostring(v), tostring(ok2)))
+  end
 end
 
 ----------------------------------------------------------------------

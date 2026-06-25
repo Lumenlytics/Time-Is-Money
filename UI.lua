@@ -185,18 +185,28 @@ end
 SLASH_TIMEISMONEY1 = "/tim"
 SLASH_TIMEISMONEY2 = "/timeismoney"
 SlashCmdList["TIMEISMONEY"] = function(msg)
-  msg = (msg or ""):lower():gsub("%s+", "")
-  if msg == "reset" then
+  msg = msg or ""
+  local cmd, arg = msg:match("^%s*(%S*)%s*(.-)%s*$")  -- keep arg's case for item links
+  cmd = (cmd or ""):lower()
+  if cmd == "reset" then
     StaticPopup_Show("TIMEISMONEY_RESET")
-  elseif msg == "run" then
+  elseif cmd == "run" then
     SG.ToggleRun()
-  elseif msg == "pause" then
+  elseif cmd == "pause" then
     SG.PauseRun()
-  elseif msg == "autostart" then
+  elseif cmd == "autostart" then
     SG.ToggleAutoStart()
-  elseif msg == "debug" then
+  elseif cmd == "drops" then
+    SG.ToggleDrops()
+  elseif cmd == "pricing" then
+    SG.SetPriceMode(arg)
+  elseif cmd == "pricetest" then
+    SG.PriceTest(arg)
+  elseif cmd == "salerate" then
+    SG.SetSaleRate(arg)
+  elseif cmd == "debug" then
     SG.ToggleDebug()
-  elseif msg == "config" or msg == "options" then
+  elseif cmd == "config" or cmd == "options" then
     SG.ToggleConfig()
   else
     SG.Toggle()

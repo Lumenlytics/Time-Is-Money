@@ -136,9 +136,18 @@ fallback; this just gives the user the choice.
 
 ---
 
-## 10. Valuation policy — what actually counts toward your total  — Medium — ✅ APPROVED
+## 10. Valuation policy — what actually counts toward your total  — Medium
 Consolidates #3 (vendor estimate), #4 (vendor-vs-AH), #9 (price source) and the
 blacklist into one coherent "how is each gathered item valued" system.
+
+✅ SHIPPED: **Item pricing mode** selector (options panel + `/tim pricing
+vendor|sells|ah`): Vendor-only, "AH if it sells", or AH-always. "If it sells" uses
+a quality/class rule (greys + random weapon/armor → vendor; mats/trade goods → AH),
+refined by TSM region sold-per-day when present — works WITHOUT TSM region data
+(this tester had none; all DBRegion* sources returned nil). Fixed runaway GPH from
+fantasy-priced junk gear (28k-gold unsellable swords wrecked the numbers).
+`/tim pricetest <shift-click item>` diagnoses raw TSM values.
+STILL TODO below: per-item Use-AH/Vendor/Exclude blacklist, tooltips.
 
 Today each gathered item is valued at its AH price (TSM/Auctionator) if available,
 else vendor price; coin adds on top. This makes that explicit and controllable:
@@ -159,7 +168,17 @@ about how the stuff you GATHER is valued.
 
 ---
 
-## 11. Count incidental run loot (greys, BoEs, mob drops)  — Medium — ✅ APPROVED
+## 11. Count incidental run loot (greys, BoEs, mob drops)  — Medium — ✅ DONE (Stage 1)
+Stage 1 shipped: "Count looted drops" toggle (`/tim drops` + options checkbox, off
+by default). During an active run, non-gather loot → a "Drops" source, valued via
+the existing AH-or-vendor logic. Only quest items are skipped; **BoP gear IS
+counted** (farmers vendor it — a real test run's pile sold for 132g).
+STAGE 2 (next — user chose "Both"): capture the ACTUAL vendor-sale gold ("Sold junk
+for X" / merchant `PLAYER_MONEY` delta) and reconcile it against the loot-time
+estimate, so the total reflects realized gold rather than a guess — without
+double-counting the two.
+DEFERRED to #10: per-quality floor, keep-blacklist, TSM sale-rate gating.
+
 The gap behind the "I vendored stuff and it wasn't tracked" question. Right now
 ONLY gathered items (ore/herb/cloth/leather via a gather cast), tailoring cloth,
 and coin are counted. The grey trash, BoE drops, and other loot that fills your
@@ -210,6 +229,28 @@ tooltips to every option, plus short section intros once the panel is tabbed.
 ---
 
 ## More ideas (mine)
+
+- **Price-source independence / optional self-scanner** — ✅ APPROVED (goal:
+  never *require* TSM). Today pricing is TSM → Auctionator → vendor; TSM is already
+  optional. The only TSM-exclusive bit is sale-rate gating (#10), which degrades to
+  "has an AH price or not" without it. For true zero-dependency: a **targeted AH
+  scanner** that fetches buyouts for ONLY the item types you gather (ore/herb/
+  leather/cloth) when the AH is open — bounded scope, NOT a TSM clone — cached as a
+  built-in price source. Tiers: (1) Auctionator-only [done], (2) vendor-only,
+  (3) self-scan. Keep vendor price as the always-available floor.
+- **Loot tally panel ("what dropped", done right)** — ✅ APPROVED. Replace the
+  MoneyLooter-style chronological *feed* (one line per loot = instant clutter) with
+  an aggregated *tally*: one row per item type, count + value updated in place, so
+  it never grows unbounded. Sort by value (default) / count / recency; cap to top
+  ~10-12 rows with a "+N more (Xg)" footer; reuse the min-value threshold to hide
+  noise; quality-color item names; per-run scope with Today/All-time toggle; its
+  own panel, off by default → natural "Loot" tab in the tabbed rework. Data already
+  exists (the per-item `items` table) — this is mostly display.
+- **Other professions (Engineering, etc.)** — debug showed an unmatched cast
+  `Engineering (49383)`; correctly ignored today (not a gathering prof, no keyword
+  match). TODO: decide whether any non-gather profession should contribute value —
+  e.g. Engineering salvage/scrapping, or crafted-item value — or stay ignored.
+  Needs scoping: what counts, and how to value it without double-counting mats.
 
 - **True run-profit GPH** — ✅ APPROVED. coin + item value (best of AH-or-vendor
   per item, via #4) − repairs − consumables, all in one /hr number. The headline

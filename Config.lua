@@ -61,7 +61,7 @@ function SG.InitConfig()
   if cfg then return end
 
   cfg = CreateFrame("Frame", "TimeIsMoneyConfigFrame", UIParent, "BackdropTemplate")
-  cfg:SetSize(380, 344)
+  cfg:SetSize(380, 414)
   cfg:SetPoint("CENTER", 60, 0)
   cfg:SetMovable(true)
   cfg:EnableMouse(true)
@@ -100,9 +100,18 @@ function SG.InitConfig()
     function() return S().profs.money end, function(v) S().profs.money = v end)
   Checkbox(cfg, 200, -86, "Auto-start runs",
     function() return S().autoStartRun end, function(v) S().autoStartRun = v end)
+  Checkbox(cfg, 16, -108, "Count looted drops (greys / BoEs picked up on a run)",
+    function() return S().countDrops end, function(v) S().countDrops = v end)
+
+  -- Item pricing
+  Segmented(cfg, 16, -134, "Item pricing", {
+    { text = "Vendor",      value = "vendor", w = 60 },
+    { text = "AH if sells",  value = "sells",  w = 84 },
+    { text = "AH always",    value = "ah",     w = 78 },
+  }, function() return S().priceMode end, function(v) SG.SetPriceMode(v) end)
 
   -- GPH window
-  Segmented(cfg, 16, -124, "Gold / hour window", {
+  Segmented(cfg, 16, -190, "Gold / hour window", {
     { text = "5m",  value = 5,  w = 40 },
     { text = "10m", value = 10, w = 44 },
     { text = "15m", value = 15, w = 44 },
@@ -110,7 +119,7 @@ function SG.InitConfig()
   }, function() return S().gphWindow end, function(v) S().gphWindow = v end)
 
   -- TSM price source
-  Segmented(cfg, 16, -174, "TSM price source (used only if TSM is installed)", {
+  Segmented(cfg, 16, -240, "TSM price source (used only if TSM is installed)", {
     { text = "Market",     value = "DBMarket",          w = 60 },
     { text = "MinBuyout",  value = "DBMinBuyout",        w = 76 },
     { text = "RegionMkt",  value = "DBRegionMarketAvg",  w = 76 },
@@ -118,7 +127,7 @@ function SG.InitConfig()
   }, function() return S().tsmSource end, function(v) S().tsmSource = v end)
 
   -- Minimum value filter
-  Segmented(cfg, 16, -224, "Ignore items worth less than (per item)", {
+  Segmented(cfg, 16, -290, "Ignore items worth less than (per item)", {
     { text = "Off", value = 0,      w = 44 },
     { text = "1g",  value = 10000,  w = 40 },
     { text = "5g",  value = 50000,  w = 40 },
