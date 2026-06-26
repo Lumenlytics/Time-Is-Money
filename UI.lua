@@ -22,8 +22,12 @@ end
 
 local function RunStatus()
   if not SG.RunActive() then return "|cff808080Run stopped|r" end
-  if SG.RunPaused() then return "|cffffff00Run paused|r  " .. SG.FmtDuration(SG.RunElapsed()) end
-  return "|cff8fd694Run live|r  " .. SG.FmtDuration(SG.RunElapsed())
+  local s = SG.RunPaused()
+    and ("|cffffff00Run paused|r  " .. SG.FmtDuration(SG.RunElapsed()))
+    or  ("|cff8fd694Run live|r  " .. SG.FmtDuration(SG.RunElapsed()))
+  local rep = SG.SessionRepairs and SG.SessionRepairs() or 0
+  if rep > 0 then s = s .. "  |cffff7070-" .. SG.Money(rep) .. "|r" end
+  return s
 end
 
 function SG.InitUI()

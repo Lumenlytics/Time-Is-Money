@@ -61,7 +61,7 @@ local DEFAULTS = {
   },
 }
 
-SG.session = { active = false, paused = false, start = nil, pausedAccum = 0, pauseStart = nil, lastActivity = 0, data = {}, events = {} }  -- the current run
+SG.session = { active = false, paused = false, start = nil, pausedAccum = 0, pauseStart = nil, lastActivity = 0, repairs = 0, data = {}, events = {} }  -- the current run
 
 local GPH_FLOOR  = 120   -- seconds: minimum denominator, so an opening burst can't read absurdly high
 
@@ -70,6 +70,7 @@ local lastGatherAt = 0
 local lastGatherProf
 local settings
 local warnedNoSource = false
+local atMerchant, lastRepairCost = false, 0   -- repair tracking (#6 net profit)
 
 ----------------------------------------------------------------------
 -- Utilities
@@ -126,6 +127,7 @@ local function StartRun(auto)
   SG.session.pausedAccum  = 0
   SG.session.pauseStart   = nil
   SG.session.lastActivity = GetTime()
+  SG.session.repairs      = 0
   wipe(SG.session.data)
   wipe(SG.session.events)
   Print(auto and "Run started automatically. Stop any time with /tim run."
@@ -136,13 +138,20 @@ end
 local function StopRun()
   if not SG.session.active then Print("No run is active."); return end
 
-  local dur   = SG.RunElapsed()
+  local dur     = SG.RunElapsed()
   SG.session.active = false
   SG.session.paused = false
-  local total = SG.SessionValue()
-  local gph   = total / (math.max(dur, GPH_FLOOR) / 3600)
+  local total   = SG.SessionValue()
+  local repairs = SG.session.repairs or 0
+  local net     = total - repairs
+  local gph     = net / (math.max(dur, GPH_FLOOR) / 3600)
 
-  Print(("Run ended - %s, %s total (%s/hr)"):format(FmtDuration(dur), Money(total), Money(gph)))
+  if repairs > 0 then
+    Print(("Run ended - %s, %s gross - %s repairs = |cff8fd694%s net|r (%s/hr)"):format(
+      FmtDuration(dur), Money(total), Money(repairs), Money(net), Money(gph)))
+  else
+    Print(("Run ended - %s, %s total (%s/hr)"):format(FmtDuration(dur), Money(total), Money(gph)))
+  end
   local parts = {}
   for _, p in ipairs(SG.PROFS) do
     local v = SG.SessionByProf(p)
@@ -195,11 +204,26 @@ function SG.ResetRun()
   SG.session.paused       = false
   SG.session.pausedAccum  = 0
   SG.session.pauseStart   = nil
+  SG.session.repairs      = 0
   wipe(SG.session.data)
   wipe(SG.session.events)
   Print("Run reset.")
   if SG.RefreshUI then SG.RefreshUI() end
 end
+
+-- Repairs (#6 net profit): booked from the merchant Repair-All hook (see events).
+-- Only counts while a run is active so it nets against that run's income.
+local function RecordRepair(copper)
+  if not copper or copper <= 0 then return end
+  if not (SG.session.active and not SG.session.paused) then return end
+  SG.session.repairs = (SG.session.repairs or 0) + copper
+  if settings and settings.debug then Print(("repair: -%s (net adjusted)"):format(Money(copper))) end
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+SG.RecordRepair = RecordRepair
+
+function SG.SessionRepairs() return SG.session.repairs or 0 end
+function SG.SessionNet()     return SG.SessionValue() - (SG.session.repairs or 0) end
 
 ----------------------------------------------------------------------
 -- Detect which gathering professions this character has
@@ -423,8 +447,10 @@ local function OnLoot(msg)
   elseif settings.profs and settings.profs.tailoring and IsCloth(itemID) then
     -- No active gather: cloth picked up off a kill counts as tailoring farming.
     prof = "tailoring"
-  elseif settings.countDrops and SG.RunActive() and not SG.RunPaused() and IsCountableDrop(link, itemID) then
-    -- Incidental loot during a run: greys, BoEs, etc. -> the "drops" source.
+  elseif settings.countDrops and IsCountableDrop(link, itemID) then
+    -- Incidental loot (greys, BoEs, etc.) -> the "drops" source. Always counts toward
+    -- the lifetime ledger (Today/All-time); the run only captures it while active, via
+    -- RecordLoot's EnsureRun. So lifetime tracking never depends on a run being started.
     prof = "drops"
   end
 
@@ -512,6 +538,7 @@ function SG.ResetData()
   SG.session.paused = false
   SG.session.pausedAccum = 0
   SG.session.pauseStart  = nil
+  SG.session.repairs = 0
   SG.session.start  = nil
   SG.session.data   = {}
   SG.session.events = {}
@@ -685,6 +712,17 @@ f:RegisterEvent("SKILL_LINES_CHANGED")
 f:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 f:RegisterEvent("CHAT_MSG_LOOT")
 f:RegisterEvent("CHAT_MSG_MONEY")
+f:RegisterEvent("MERCHANT_SHOW")
+f:RegisterEvent("MERCHANT_CLOSED")
+f:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
+
+-- Book repair spending: keep the live repair cost while at a merchant, then record
+-- it when Repair All runs (skip guild-bank-funded repairs - those cost you nothing).
+if type(RepairAllItems) == "function" then
+  hooksecurefunc("RepairAllItems", function(guildBankRepair)
+    if not guildBankRepair then RecordRepair(lastRepairCost) end
+  end)
+end
 
 f:SetScript("OnEvent", function(_, event, ...)
   if event == "ADDON_LOADED" then
@@ -723,5 +761,15 @@ f:SetScript("OnEvent", function(_, event, ...)
     if settings and settings.profs and settings.profs.money then
       RecordMoney(ParseMoney((...)))
     end
+
+  elseif event == "MERCHANT_SHOW" then
+    atMerchant = true
+    lastRepairCost = (GetRepairAllCost and GetRepairAllCost()) or 0
+
+  elseif event == "MERCHANT_CLOSED" then
+    atMerchant = false
+
+  elseif event == "UPDATE_INVENTORY_DURABILITY" then
+    if atMerchant and GetRepairAllCost then lastRepairCost = GetRepairAllCost() or 0 end
   end
 end)

@@ -28,13 +28,24 @@ Raw **coin you loot** in the field is tracked too (via `CHAT_MSG_MONEY`, so vend
 repairs, and mail are not counted) and folded into every total as its own "Coin" source.
 
 Optionally (off by default — `/tim drops` or the options checkbox), the grey/BoE **trash you
-loot during a run** is valued too — greys at vendor price, sellable items at AH price — and
-shown as its own **"Drops"** source. Only quest items are skipped — BoP gear is counted, since you vendor it.
+loot** is valued too — greys at vendor price, sellable items at AH price — and added to your
+**lifetime totals** (and the active run, if any) as a separate **"Drops"** source. Only quest
+items are skipped — BoP gear is counted, since you vendor it.
+
+**Lifetime tracking never needs a run.** Gathered items, coin, and drops always count toward
+your Today / 7-day / All-time totals the moment they happen. A **run** is just a *timed lens*
+over that data — start one to measure "how much in this session" (the GPH and net-after-repairs
+numbers); it never gates whether gold is counted.
 
 A **run** is a bounded farming session: it auto-starts on your first gather (or `/tim run`),
 and the **This run** total and **Gold/hour** track that run. Stop it with `/tim run` (or the
 Start/Stop button) to print an end-of-run summary. The Today / 7-day / All-time totals keep
 accumulating regardless of runs.
+
+**Repairs are subtracted (net profit):** gold you spend on Repair All during a run is tracked,
+and the end-of-run summary shows **gross − repairs = net**, with Gold/hour based on net. The
+panel's run-status line shows the running repair deduction. (Captured from the merchant
+Repair-All button; guild-bank-funded repairs don't count. Consumables aren't tracked yet.)
 
 The window shows combined **Gold/hour, This run, Today, Last 7 days, All-time**, a
 per-source run breakdown, and a 7-day bar chart.

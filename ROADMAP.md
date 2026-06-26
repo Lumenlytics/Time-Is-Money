@@ -60,7 +60,14 @@ Technically possible via `C_AuctionHouse.PostItem`, but:
   (disposition) and hand the "Auction" pile off to TSM groups / Auctionator's
   selling list. Let the specialists post.
 
-## 6. Net-gold session record (with repair handling)  — Medium
+## 6. Net-gold session record (with repair handling)  — Medium — ✅ DONE (repairs)
+✅ SHIPPED: repair cost during a run is captured (hook on `RepairAllItems` + live
+`GetRepairAllCost()` while at a merchant; guild-funded repairs skipped) and netted
+against the run — end-of-run summary shows gross − repairs = net, GPH is net, and
+the panel run-status line shows the running deduction. NOTE: went with *actual
+repair spend* (reliable) rather than the durability-delta idea below, because
+`GetRepairAllCost()` only returns a value at a merchant. DEFERRED: consumables
+(food/flasks/ammo) cost; a full "record session" net ledger with all gold in/out.
 A "record this session" mode that reports **net** profit: all gold in minus all
 gold out, repairs included.
 
@@ -174,9 +181,11 @@ about how the stuff you GATHER is valued.
 
 ## 11. Count incidental run loot (greys, BoEs, mob drops)  — Medium — ✅ DONE (Stage 1)
 Stage 1 shipped: "Count looted drops" toggle (`/tim drops` + options checkbox, off
-by default). During an active run, non-gather loot → a "Drops" source, valued via
-the existing AH-or-vendor logic. Only quest items are skipped; **BoP gear IS
-counted** (farmers vendor it — a real test run's pile sold for 132g).
+by default). Non-gather loot → a "Drops" source, valued via the existing
+AH-or-vendor logic. Only quest items are skipped; **BoP gear IS counted** (farmers
+vendor it — a real test run's pile sold for 132g). **Decoupled from runs:** drops
+(like gather/coin) always count toward lifetime Today/All-time; the run is purely a
+timed lens that captures them while active. Lifetime tracking never needs a run.
 STAGE 2 (next — user chose "Both"): capture the ACTUAL vendor-sale gold ("Sold junk
 for X" / merchant `PLAYER_MONEY` delta) and reconcile it against the loot-time
 estimate, so the total reflects realized gold rather than a guess — without
