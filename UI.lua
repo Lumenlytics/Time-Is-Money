@@ -202,6 +202,16 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     SG.SetPriceMode(arg)
   elseif cmd == "pricetest" then
     SG.PriceTest(arg)
+  elseif cmd == "ah" then
+    SG.SetItemRule("ah", arg)
+  elseif cmd == "vendor" then
+    SG.SetItemRule("vendor", arg)
+  elseif cmd == "exclude" then
+    SG.SetItemRule("exclude", arg)
+  elseif cmd == "clearrule" then
+    SG.ClearItemRule(arg)
+  elseif cmd == "rules" then
+    SG.ListItemRules()
   elseif cmd == "salerate" then
     SG.SetSaleRate(arg)
   elseif cmd == "debug" then

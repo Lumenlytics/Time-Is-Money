@@ -19,6 +19,11 @@ drops use vendor price — nobody buys old-expansion gear — while mats and tra
 TSM region sale data is present, gear that genuinely sells is let through), or **AH always** (AH
 price regardless). Works without TSM. Set with `/tim pricing vendor|sells|ah`.
 
+**Per-item rules** override the mode for specific items: shift-click an item after `/tim ah`,
+`/tim vendor`, or `/tim exclude` to force it to AH price, vendor price, or skip it entirely
+(e.g. force a grey you know sells onto AH, or exclude something you always keep). `/tim rules`
+lists them; `/tim clearrule` (shift-click) removes one.
+
 Raw **coin you loot** in the field is tracked too (via `CHAT_MSG_MONEY`, so vendoring,
 repairs, and mail are not counted) and folded into every total as its own "Coin" source.
 
@@ -48,6 +53,8 @@ per-source run breakdown, and a 7-day bar chart.
 - `/tim drops` — toggle counting incidental run loot (greys / BoEs) as a "Drops" source (also a checkbox in options)
 - `/tim pricing vendor|sells|ah` — item pricing mode: Vendor only · AH if it sells (sale-rate gated) · AH always (also in options)
 - `/tim salerate <n>` — for "sells" mode: min TSM sales/day to treat an item as sellable (default 0.5)
+- `/tim ah` · `/tim vendor` · `/tim exclude` — (shift-click an item) force it to AH price / vendor price / not counted
+- `/tim rules` — list your per-item rules · `/tim clearrule` — (shift-click) remove one
 - `/tim config` — open the options window (also: the Options button on the panel)
 - `/tim reset` — clear all tracked data (also: right-click the window)
 - `/tim debug` — print each detected cast and recorded item

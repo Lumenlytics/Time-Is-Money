@@ -147,7 +147,11 @@ refined by TSM region sold-per-day when present — works WITHOUT TSM region dat
 (this tester had none; all DBRegion* sources returned nil). Fixed runaway GPH from
 fantasy-priced junk gear (28k-gold unsellable swords wrecked the numbers).
 `/tim pricetest <shift-click item>` diagnoses raw TSM values.
-STILL TODO below: per-item Use-AH/Vendor/Exclude blacklist, tooltips.
+✅ ALSO SHIPPED: per-item rules (whitelist/blacklist) — `/tim ah|vendor|exclude`
++ shift-click forces an item to AH / vendor / excluded, overriding the mode; `/tim
+rules` lists, `/tim clearrule` removes. Stored in TimeIsMoneyDB.itemRules.
+STILL TODO: a visual list editor for the rules (comes with the tabbed-options
+rework) + tooltips.
 
 Today each gathered item is valued at its AH price (TSM/Auctionator) if available,
 else vendor price; coin adds on top. This makes that explicit and controllable:

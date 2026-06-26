@@ -43,9 +43,10 @@ end
 -- Saved-data defaults
 ----------------------------------------------------------------------
 local DEFAULTS = {
-  days     = {},   -- ["YYYY-MM-DD"] = { skinning={value,count}, mining=..., herbalism=... }
-  items    = {},   -- [itemID] = { name, count, value, prof }
-  totals   = {},   -- prof -> {value,count}
+  days      = {},  -- ["YYYY-MM-DD"] = { skinning={value,count}, mining=..., herbalism=... }
+  items     = {},  -- [itemID] = { name, count, value, prof }
+  totals    = {},  -- prof -> {value,count}
+  itemRules = {},  -- [itemID] = "ah" | "vendor" | "exclude" (per-item override of the pricing mode)
   settings = {
     window    = 2.0,            -- seconds: loot attributed to a gather after its cast
     debug     = false,
@@ -243,8 +244,12 @@ local function SellsOnAH(link)
 end
 
 local function AHValue(link, itemID)
-  local mode   = settings.priceMode or "sells"
   local vendor = select(11, C_Item.GetItemInfo(link)) or 0
+
+  -- Per-item override (your /tim ah | /tim vendor rules) wins over the pricing mode.
+  local rule = itemID and TimeIsMoneyDB.itemRules and TimeIsMoneyDB.itemRules[itemID]
+  if rule == "vendor" then return vendor, "vendor (rule)" end
+  local mode = (rule == "ah") and "ah" or (settings.priceMode or "sells")
 
   -- A) Vendor only: never use AH prices.
   if mode == "vendor" then
@@ -280,6 +285,10 @@ end
 local function RecordLoot(prof, link, qty)
   qty = qty or 1
   local itemID = tonumber(link:match("|Hitem:(%d+):"))
+  if itemID and TimeIsMoneyDB.itemRules and TimeIsMoneyDB.itemRules[itemID] == "exclude" then
+    if settings.debug then Print(("skip (excluded): %s"):format(link)) end
+    return
+  end
   local unitVal, source = AHValue(link, itemID)
 
   if source == "none" and not warnedNoSource then
@@ -566,6 +575,48 @@ function SG.PriceTest(arg)
     local ok2, v = pcall(TSM_API.GetCustomPriceValue, src, itemString)
     Print(("  %s = %s  (ok=%s)"):format(src, tostring(v), tostring(ok2)))
   end
+end
+
+----------------------------------------------------------------------
+-- Per-item pricing rules (whitelist / blacklist): force AH, force vendor, or
+-- exclude a specific item, overriding the pricing mode. Add by shift-clicking.
+----------------------------------------------------------------------
+local function RuleItemID(arg)
+  return arg and tonumber(tostring(arg):match("Hitem:(%d+):"))
+end
+
+function SG.SetItemRule(rule, arg)
+  local itemID = RuleItemID(arg)
+  if not itemID then
+    Print(("Usage: /tim %s <shift-click an item into chat>"):format(rule))
+    return
+  end
+  TimeIsMoneyDB.itemRules = TimeIsMoneyDB.itemRules or {}
+  TimeIsMoneyDB.itemRules[itemID] = rule
+  local name = (C_Item.GetItemInfo(itemID)) or ("item:" .. itemID)
+  Print(("Pricing rule: %s -> |cff8fd694%s|r"):format(name, rule))
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
+function SG.ClearItemRule(arg)
+  local itemID = RuleItemID(arg)
+  if not itemID then Print("Usage: /tim clearrule <shift-click an item>"); return end
+  if TimeIsMoneyDB.itemRules then TimeIsMoneyDB.itemRules[itemID] = nil end
+  local name = (C_Item.GetItemInfo(itemID)) or ("item:" .. itemID)
+  Print(("Pricing rule cleared: %s"):format(name))
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
+function SG.ListItemRules()
+  local r = TimeIsMoneyDB.itemRules or {}
+  Print("Item pricing rules (override the pricing mode):")
+  local n = 0
+  for itemID, rule in pairs(r) do
+    n = n + 1
+    local name = (C_Item.GetItemInfo(itemID)) or ("item:" .. itemID)
+    Print(("  %s = |cff8fd694%s|r"):format(name, rule))
+  end
+  if n == 0 then Print("  (none) - add with /tim ah | /tim vendor | /tim exclude + shift-click an item") end
 end
 
 ----------------------------------------------------------------------
