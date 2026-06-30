@@ -318,6 +318,134 @@ local function AHValue(link, itemID)
 end
 
 ----------------------------------------------------------------------
+-- Sell workflow (#14): disposition engine + non-destructive preview
+----------------------------------------------------------------------
+-- Current expansion id. Items from older expansions are "old" loot. NOTE: some current
+-- leveling greens report a lower expac id, so we apply the "old" gate ONLY to BoP gear,
+-- where old + soulbound + equippable is a safe auto-sell signal.
+local CURRENT_EXPANSION = _G.LE_EXPANSION_LEVEL_CURRENT or 99
+
+-- Do we have a real AH price for this item (TSM market or Auctionator)? If so it's listable.
+local function HasAHPrice(link, itemID)
+  if TSM_API and TSM_API.ToItemString then
+    local ok, itemString = pcall(TSM_API.ToItemString, link)
+    if ok and itemString then
+      local ok2, v = pcall(TSM_API.GetCustomPriceValue, settings.tsmSource or "DBMarket", itemString)
+      if ok2 and v and v > 0 then return true end
+    end
+  end
+  if itemID and Auctionator and Auctionator.API and Auctionator.API.v1
+     and Auctionator.API.v1.GetAuctionPriceByItemID then
+    local v = Auctionator.API.v1.GetAuctionPriceByItemID(ADDON, itemID)
+    if v and v > 0 then return true end
+  end
+  return false
+end
+
+-- Is a price-source addon (TSM or Auctionator) even loaded? Distinguishes "no source at all"
+-- from "source present but hasn't seen this item yet" for clearer guidance.
+local function HasPriceSourceInstalled()
+  if TSM_API and TSM_API.ToItemString then return true end
+  if Auctionator and Auctionator.API and Auctionator.API.v1
+     and Auctionator.API.v1.GetAuctionPriceByItemID then return true end
+  return false
+end
+
+-- BoE AH-gate, three-state: "sells" | "wont" | "unknown". CRITICAL: "unknown" must NOT be
+-- treated as "wont" - without a price source we can't tell, so the caller keeps it (never
+-- auto-vendors a BoE we can't judge). Only grey + a confident low TSM sale-rate are "wont".
+local function AHSellability(link, itemID)
+  local _, _, quality, _, _, _, _, _, _, _, _, classID = C_Item.GetItemInfo(link)
+  if quality == 0 then return "wont" end                  -- grey: not auctionable
+  if HasAHPrice(link, itemID) then return "sells" end     -- real AH price = listable
+  if classID == 2 or classID == 4 then                    -- gear: needs TSM region data to judge
+    local spd = TSMSoldPerDay(link)
+    if type(spd) == "number" then
+      return (spd >= (settings.saleRateMin or 0.5)) and "sells" or "wont"
+    end
+    return "unknown"                                       -- gear, no price, no sale data
+  end
+  return "sells"                                           -- mats/recipes/etc w/o price: assume listable -> keep
+end
+
+-- Disposition for one item: "keep" | "vendor" | "auction", plus a plain-language reason.
+-- Reuses SellsOnAH (the BoE AH-gate) and the vendor sell price already used in valuation.
+-- Gathered mats fall through to "keep" - this clears junk, it never vendors your farm goods.
+local function ItemDisposition(link)
+  if not link then return "keep", "empty slot" end
+  local itemID = tonumber(link:match("|Hitem:(%d+):"))
+  local _, _, quality, _, _, _, _, _, equipLoc, _, vendor, classID, _, bindType, expacID = C_Item.GetItemInfo(link)
+  if quality == nil then return "keep", "not cached yet" end
+  vendor = vendor or 0
+
+  if classID == 12 or vendor <= 0 then return "keep", "not vendor-sellable" end  -- quest / no sell price
+  if quality == 0 then return "vendor", "grey" end                               -- no AH market
+
+  if bindType == 2 then                                                          -- Bind on Equip
+    local s = AHSellability(link, itemID)
+    if s == "sells" then return "auction", "BoE, sells on AH" end
+    if s == "wont"  then return "vendor", "BoE, won't sell on AH" end
+    return "keep", "BoE, no price source - kept (can't judge)"                   -- safe default
+  end
+
+  local equippable = equipLoc and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP"
+  if bindType == 1 and equippable then                                           -- Bind on Pickup gear
+    if (expacID or 0) < CURRENT_EXPANSION then
+      return "vendor", ("old-expansion BoP gear (exp %s)"):format(tostring(expacID))
+    end
+    return "keep", "current-expansion BoP (possible upgrade)"
+  end
+
+  return "keep", "keep"
+end
+SG.ItemDisposition = ItemDisposition
+
+-- Scan all bags and print what WOULD be sold. Non-destructive: sells nothing.
+local PREVIEW_CAP = 20
+function SG.SellPreview()
+  if not (C_Container and C_Container.GetContainerNumSlots) then
+    Print("Sell preview needs the C_Container API (retail)."); return
+  end
+  local vend, auc, keepCount, totalVendor, unjudgedBoE = {}, 0, 0, 0, 0
+  for bag = 0, 5 do
+    local slots = C_Container.GetContainerNumSlots(bag) or 0
+    for slot = 1, slots do
+      local link = C_Container.GetContainerItemLink(bag, slot)
+      if link then
+        local disp, reason = ItemDisposition(link)
+        if disp == "vendor" then
+          local info  = C_Container.GetContainerItemInfo(bag, slot)
+          local count = (info and info.stackCount) or 1
+          local each  = select(11, C_Item.GetItemInfo(link)) or 0
+          totalVendor = totalVendor + each * count
+          vend[#vend + 1] = { link = link, count = count, reason = reason, value = each * count }
+        elseif disp == "auction" then
+          auc = auc + 1
+        else
+          keepCount = keepCount + 1
+          if reason:find("^BoE") then unjudgedBoE = unjudgedBoE + 1 end
+        end
+      end
+    end
+  end
+
+  Print(("|cff8fd694Sell preview|r - would VENDOR %d item(s) for ~%s (nothing is sold):"):format(#vend, Money(totalVendor)))
+  for i = 1, math.min(#vend, PREVIEW_CAP) do
+    local e = vend[i]
+    Print(("  %s x%d  %s  |cff808080(%s)|r"):format(e.link, e.count, Money(e.value), e.reason))
+  end
+  if #vend > PREVIEW_CAP then Print(("  ... +%d more"):format(#vend - PREVIEW_CAP)) end
+  Print(("|cffffff00Hold for AH:|r %d BoE(s) that should sell.   |cff808080Keep:|r %d other item(s)."):format(auc, keepCount))
+  if unjudgedBoE > 0 then
+    if HasPriceSourceInstalled() then
+      Print(("|cffff7070Note:|r %d BoE(s) kept - your AH addon has no recorded price for them yet. Open/scan the Auction House so the gate can judge them."):format(unjudgedBoE))
+    else
+      Print(("|cffff7070Note:|r %d BoE(s) kept - no AH price source. Install Auctionator (or TSM) so the gate can vendor BoEs that truly won't sell."):format(unjudgedBoE))
+    end
+  end
+end
+
+----------------------------------------------------------------------
 -- Recording loot
 ----------------------------------------------------------------------
 local function RecordLoot(prof, link, qty)
