@@ -216,8 +216,12 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     SG.ListItemRules()
   elseif cmd == "salerate" then
     SG.SetSaleRate(arg)
-  elseif cmd == "sellpreview" or cmd == "sell" then
+  elseif cmd == "sellpreview" then
     SG.SellPreview()
+  elseif cmd == "sell" then
+    if SG.ShowSellWindow then SG.ShowSellWindow(true) end
+  elseif cmd == "sellwindow" then
+    SG.ToggleSellWindow()
   elseif cmd == "debug" then
     SG.ToggleDebug()
   elseif cmd == "config" or cmd == "options" then

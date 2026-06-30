@@ -57,6 +57,7 @@ local DEFAULTS = {
     countDrops   = false,       -- count incidental run loot (greys/BoEs) into a "drops" source
     priceMode    = "sells",     -- "vendor" | "sells" (AH if it sells) | "ah" (AH always)
     saleRateMin  = 0.5,         -- "sells" mode: TSM region sold-per-day below this -> vendor price
+    sellWindow   = true,        -- auto-open the sell-review window at a merchant (#14)
     profs     = { skinning = true, mining = true, herbalism = true, tailoring = true, money = true },
   },
 }
@@ -400,13 +401,13 @@ local function ItemDisposition(link)
 end
 SG.ItemDisposition = ItemDisposition
 
--- Scan all bags and print what WOULD be sold. Non-destructive: sells nothing.
-local PREVIEW_CAP = 20
-function SG.SellPreview()
-  if not (C_Container and C_Container.GetContainerNumSlots) then
-    Print("Sell preview needs the C_Container API (retail)."); return
-  end
-  local vend, auc, keepCount, totalVendor, unjudgedBoE = {}, 0, 0, 0, 0
+-- Scan all bags and categorize by disposition. Pure data, sells nothing. Shared by the
+-- text preview and the merchant review window. Returns:
+--   vendor = { {bag, slot, link, count, reason, value}, ... }  (the would-vendor pile)
+--   auction, keep, unjudgedBoE = counts;  totalVendor = copper
+function SG.ScanSellables()
+  local r = { vendor = {}, auction = 0, keep = 0, unjudgedBoE = 0, totalVendor = 0 }
+  if not (C_Container and C_Container.GetContainerNumSlots) then return r end
   for bag = 0, 5 do
     local slots = C_Container.GetContainerNumSlots(bag) or 0
     for slot = 1, slots do
@@ -417,32 +418,48 @@ function SG.SellPreview()
           local info  = C_Container.GetContainerItemInfo(bag, slot)
           local count = (info and info.stackCount) or 1
           local each  = select(11, C_Item.GetItemInfo(link)) or 0
-          totalVendor = totalVendor + each * count
-          vend[#vend + 1] = { link = link, count = count, reason = reason, value = each * count }
+          r.totalVendor = r.totalVendor + each * count
+          r.vendor[#r.vendor + 1] = { bag = bag, slot = slot, link = link, count = count, reason = reason, value = each * count }
         elseif disp == "auction" then
-          auc = auc + 1
+          r.auction = r.auction + 1
         else
-          keepCount = keepCount + 1
-          if reason:find("^BoE") then unjudgedBoE = unjudgedBoE + 1 end
+          r.keep = r.keep + 1
+          if reason:find("^BoE") then r.unjudgedBoE = r.unjudgedBoE + 1 end
         end
       end
     end
   end
+  return r
+end
 
-  Print(("|cff8fd694Sell preview|r - would VENDOR %d item(s) for ~%s (nothing is sold):"):format(#vend, Money(totalVendor)))
-  for i = 1, math.min(#vend, PREVIEW_CAP) do
-    local e = vend[i]
+-- One-line guidance about BoEs we couldn't price (nil if none). Reused by preview + window.
+function SG.UnpricedBoENote(unjudgedBoE)
+  if (unjudgedBoE or 0) <= 0 then return nil end
+  if HasPriceSourceInstalled() then
+    return ("%d BoE(s) kept - your AH addon has no recorded price for them yet. Open/scan the Auction House so the gate can judge them."):format(unjudgedBoE)
+  end
+  return ("%d BoE(s) kept - no AH price source. Install Auctionator (or TSM) so the gate can vendor BoEs that truly won't sell."):format(unjudgedBoE)
+end
+
+-- Print what WOULD be sold. Non-destructive.
+local PREVIEW_CAP = 20
+function SG.SellPreview()
+  local r = SG.ScanSellables()
+  Print(("|cff8fd694Sell preview|r - would VENDOR %d item(s) for ~%s (nothing is sold):"):format(#r.vendor, Money(r.totalVendor)))
+  for i = 1, math.min(#r.vendor, PREVIEW_CAP) do
+    local e = r.vendor[i]
     Print(("  %s x%d  %s  |cff808080(%s)|r"):format(e.link, e.count, Money(e.value), e.reason))
   end
-  if #vend > PREVIEW_CAP then Print(("  ... +%d more"):format(#vend - PREVIEW_CAP)) end
-  Print(("|cffffff00Hold for AH:|r %d BoE(s) that should sell.   |cff808080Keep:|r %d other item(s)."):format(auc, keepCount))
-  if unjudgedBoE > 0 then
-    if HasPriceSourceInstalled() then
-      Print(("|cffff7070Note:|r %d BoE(s) kept - your AH addon has no recorded price for them yet. Open/scan the Auction House so the gate can judge them."):format(unjudgedBoE))
-    else
-      Print(("|cffff7070Note:|r %d BoE(s) kept - no AH price source. Install Auctionator (or TSM) so the gate can vendor BoEs that truly won't sell."):format(unjudgedBoE))
-    end
-  end
+  if #r.vendor > PREVIEW_CAP then Print(("  ... +%d more"):format(#r.vendor - PREVIEW_CAP)) end
+  Print(("|cffffff00Hold for AH:|r %d BoE(s) that should sell.   |cff808080Keep:|r %d other item(s)."):format(r.auction, r.keep))
+  local note = SG.UnpricedBoENote(r.unjudgedBoE)
+  if note then Print("|cffff7070Note:|r " .. note) end
+end
+
+function SG.SellWindowEnabled() return settings.sellWindow ~= false end
+function SG.ToggleSellWindow()
+  settings.sellWindow = (settings.sellWindow == false) and true or false
+  Print("Sell-review window auto-open = " .. (settings.sellWindow ~= false and "|cff8fd694on|r" or "|cff808080off|r"))
 end
 
 ----------------------------------------------------------------------
