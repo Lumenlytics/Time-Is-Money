@@ -51,10 +51,6 @@ function SG.InitUI()
   frame:SetBackdropBorderColor(0.20, 0.50, 0.30, 1)
   frame:Hide()
 
-  frame:SetScript("OnMouseUp", function(_, button)
-    if button == "RightButton" then StaticPopup_Show("TIMEISMONEY_RESET") end
-  end)
-
   local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
   title:SetPoint("TOP", 0, -10)
   title:SetText("|cff8fd694Time Is Money|r")
@@ -109,9 +105,11 @@ function SG.InitUI()
     bars[i] = { tex = b, lbl = lbl, val = val }
   end
 
-  local footer = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  footer:SetPoint("BOTTOM", 0, 30)
-  footer:SetText("/tim  -  right-click clears ALL data")
+  local clearBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+  clearBtn:SetSize(110, 18)
+  clearBtn:SetPoint("BOTTOM", 0, 30)
+  clearBtn:SetText("Clear all data")
+  clearBtn:SetScript("OnClick", function() StaticPopup_Show("TIMEISMONEY_RESET") end)
 
   local opt = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
   opt:SetSize(64, 20)

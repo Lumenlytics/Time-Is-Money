@@ -61,7 +61,7 @@ local DEFAULTS = {
   },
 }
 
-SG.session = { active = false, paused = false, start = nil, pausedAccum = 0, pauseStart = nil, lastActivity = 0, repairs = 0, data = {}, events = {} }  -- the current run
+SG.session = { active = false, paused = false, start = nil, pausedAccum = 0, pauseStart = nil, lastActivity = 0, repairs = 0, startMissing = 0, data = {}, events = {} }  -- the current run
 
 local GPH_FLOOR  = 120   -- seconds: minimum denominator, so an opening burst can't read absurdly high
 
@@ -70,7 +70,7 @@ local lastGatherAt = 0
 local lastGatherProf
 local settings
 local warnedNoSource = false
-local atMerchant, lastRepairCost = false, 0   -- repair tracking (#6 net profit)
+local atMerchant, lastRepairCost, lastMissing = false, 0, 0   -- repair tracking (#6 net profit)
 
 ----------------------------------------------------------------------
 -- Utilities
@@ -103,6 +103,18 @@ local function MergeDefaults(dst, src)
   end
 end
 
+-- Sum of missing durability points across equipped gear. Works anywhere (unlike
+-- GetRepairAllCost, which only returns a value at a merchant), so we can baseline it
+-- at run start and charge a run only for the wear IT caused, not a pre-existing bill.
+local function MissingDurability()
+  local missing = 0
+  for slot = 1, 18 do
+    local cur, max = GetInventoryItemDurability(slot)
+    if cur and max and max > 0 then missing = missing + (max - cur) end
+  end
+  return missing
+end
+
 ----------------------------------------------------------------------
 -- Run framing: a bounded farm run, distinct from the persistent ledger
 ----------------------------------------------------------------------
@@ -128,6 +140,7 @@ local function StartRun(auto)
   SG.session.pauseStart   = nil
   SG.session.lastActivity = GetTime()
   SG.session.repairs      = 0
+  SG.session.startMissing = MissingDurability()
   wipe(SG.session.data)
   wipe(SG.session.events)
   Print(auto and "Run started automatically. Stop any time with /tim run."
@@ -205,6 +218,7 @@ function SG.ResetRun()
   SG.session.pausedAccum  = 0
   SG.session.pauseStart   = nil
   SG.session.repairs      = 0
+  SG.session.startMissing = MissingDurability()
   wipe(SG.session.data)
   wipe(SG.session.events)
   Print("Run reset.")
@@ -539,6 +553,7 @@ function SG.ResetData()
   SG.session.pausedAccum = 0
   SG.session.pauseStart  = nil
   SG.session.repairs = 0
+  SG.session.startMissing = 0
   SG.session.start  = nil
   SG.session.data   = {}
   SG.session.events = {}
@@ -720,7 +735,22 @@ f:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
 -- it when Repair All runs (skip guild-bank-funded repairs - those cost you nothing).
 if type(RepairAllItems) == "function" then
   hooksecurefunc("RepairAllItems", function(guildBankRepair)
-    if not guildBankRepair then RecordRepair(lastRepairCost) end
+    if guildBankRepair then return end                       -- flag says guild; trust it as a fast path
+    local missing = lastMissing or 0
+    if missing <= 0 then return end
+    -- Don't trust the flag alone (some auto-repair addons guild-repair without setting it).
+    -- Ground truth: snapshot gold now, re-check next frame - guild/free repairs leave your
+    -- wallet untouched, so paid <= 0 means it cost YOU nothing, record nothing.
+    local before   = GetMoney()
+    local d0       = SG.session.startMissing or 0
+    local runShare = math.max(0, missing - d0) / missing     -- charge only run-caused wear
+    C_Timer.After(0, function()
+      local paid = before - GetMoney()                       -- personal gold actually spent
+      if paid > 0 then
+        RecordRepair(paid * runShare)
+        SG.session.startMissing = 0                           -- baseline reset only on a real repair
+      end
+    end)
   end)
 end
 
@@ -765,11 +795,15 @@ f:SetScript("OnEvent", function(_, event, ...)
   elseif event == "MERCHANT_SHOW" then
     atMerchant = true
     lastRepairCost = (GetRepairAllCost and GetRepairAllCost()) or 0
+    lastMissing = MissingDurability()
 
   elseif event == "MERCHANT_CLOSED" then
     atMerchant = false
 
   elseif event == "UPDATE_INVENTORY_DURABILITY" then
-    if atMerchant and GetRepairAllCost then lastRepairCost = GetRepairAllCost() or 0 end
+    if atMerchant then
+      lastRepairCost = (GetRepairAllCost and GetRepairAllCost()) or 0
+      lastMissing = MissingDurability()
+    end
   end
 end)

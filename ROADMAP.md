@@ -3,6 +3,19 @@
 Scratchpad for future features. Nothing here is committed; it's a backlog so ideas
 don't get lost. Rough feasibility tags: **Easy / Medium / Hard / Rabbit hole**.
 
+## Vision / North Star
+A focused, **single-character live farm/gold mod** that answers *"how good is this farm
+route right now?"* — real-time Gold/hour + valuation of what you gather. It:
+- lets you **control exactly what's tracked**, with an **easy-to-read UI that feels
+  native to WoW** — the anti-TSM: no spreadsheet sprawl, not overkill.
+- is **self-contained**: gathers the price info we actually use itself, so it never
+  *requires* TSM or Auctionator (they stay optional bonuses).
+
+NOTE: the whole-account / multi-character dashboard ("who holds what gold, each char's
+professions/income/spend over time") **moved to a separate addon, AltArmy** — see
+`AddOns/AltArmy/HANDOFF.md`. Time Is Money stays the live, single-char farming tool.
+Everything below serves that focused mission.
+
 ---
 
 ## 1. Money ("coin") gather branch  — Easy
@@ -60,16 +73,25 @@ Technically possible via `C_AuctionHouse.PostItem`, but:
   (disposition) and hand the "Auction" pile off to TSM groups / Auctionator's
   selling list. Let the specialists post.
 
-## 6. Net-gold session record (with repair handling)  — Medium — ✅ DONE (repairs)
+## 6. Net-gold session record (repair handling)  — Medium — ✅ DONE (repairs only)
+SCOPE NOTE: an experimental "all outgoing gold" spending tracker (AH/mail/trades via
+`PLAYER_MONEY` deltas) was built then **removed** — that account-bookkeeping belongs in
+the separate **AltArmy** addon's always-on per-character income/spend ledger, not in the
+farm GPH (mailing a friend says nothing about how good a farm route is). Repairs STAY in
+the run net because wear is a direct cost of the farming itself. So this run nets only
+repairs against income.
+
 ✅ SHIPPED: repair cost during a run is captured (hook on `RepairAllItems` + live
-`GetRepairAllCost()` while at a merchant; guild-funded repairs skipped) and netted
-against the run — end-of-run summary shows gross − repairs = net, GPH is net, and
-the panel run-status line shows the running deduction. NOTE: went with *actual
-repair spend* (reliable) rather than the durability-delta idea below, because
-`GetRepairAllCost()` only returns a value at a merchant. DEFERRED: consumables
-(food/flasks/ammo) cost; a full "record session" net ledger with all gold in/out.
-A "record this session" mode that reports **net** profit: all gold in minus all
-gold out, repairs included.
+`GetRepairAllCost()` while at a merchant) and netted against the run — end-of-run summary
+shows gross − repairs = net, GPH is net, and the panel run-status line shows the running
+deduction. **Pro-rated to the wear the run caused**: baseline missing-durability points at
+run start (`MissingDurability()`, works anywhere), then charge a repair's cost × (current
+missing − baseline)/current — so a pre-existing repair bill paid early in a run charges ~0,
+not the whole thing. **Guild/free repairs are skipped robustly**: the hook snapshots
+`GetMoney()` and re-checks next frame (`C_Timer.After(0)`), recording only if your personal
+gold actually dropped — so an auto-repair addon that pulls guild funds without setting the
+`guildBankRepair` arg no longer mis-charges the run. DEFERRED: consumables (food/flasks)
+cost.
 
 - On **start**: warn if gear isn't fully repaired ("repair before recording for a
   clean net"). Optionally capture starting durability.
@@ -211,6 +233,61 @@ bags on a run are currently **ignored** — but that's real profit.
 
 ---
 
+## 12. Self-contained pricing (built-in AH scanner)  — Hard — ✅ APPROVED (vision)
+Goal: never *require* TSM/Auctionator — build our own local price source.
+- On AH open, query prices for ONLY the items we actually value (gathered mats +
+  drops we've seen) — a small targeted set, not the whole AH, so it's fast and
+  within `C_AuctionHouse` rate limits. Cache lowest buyout / a rolling market avg
+  per item in saved data.
+- Use it as a first-class source in `AHValue()`; TSM/Auctionator stay optional.
+- ✅ FEASIBLE: local market price (TSM "DBMarket" equivalent). Bounded, doable.
+- ❌ NOT feasible locally: TSM's REGION sale-rate / sold-per-day — that needs their
+  backend aggregating sales across players; a lone addon can't know it. We don't
+  need it: the "sells" gate uses the quality/class rule, and we can track OUR OWN
+  sell-through from AH-sale mail over time as a bonus signal. So we can be fully
+  TSM-independent for everything this addon actually uses.
+
+## 13. Warband / whole-account view  — ➡️ MOVED TO ALTARMY
+The whole-account, multi-character dashboard (per-char gold "who holds what", professions,
+income/spend over time) is now its own addon, **AltArmy** — see `AddOns/AltArmy/HANDOFF.md`.
+It is NOT part of Time Is Money. Left here as a pointer so the idea isn't looked for in the
+wrong place.
+
+---
+
+## 14. Farm-loot sell workflow (BoP auto-sell + BoE AH-gate)  — Medium — ✅ APPROVED
+Closes the loop TIM already opens: it loots & VALUES drops (#11) — this REALIZES that gold
+by selling the junk at a vendor. Lives in TIM (not AltArmy) because dungeon farming dumps a
+ton of vendorable BoP boss-gear into your bags — selling it is part of the farm loop, and it
+feeds #11 Stage 2 (reconcile actual "Sold junk for X" gold vs the loot-time estimate).
+Consolidates #3 (vendor-everything estimate) + #4 (vendor-vs-AH disposition) into a real
+action. **Revives auto-sell, which was parked as too-destructive — so the safety rules below
+are now ACTIVE, not parked.**
+
+Per-item facts from `C_Item.GetItemInfo(link)` (full async form; handle
+`GET_ITEM_INFO_RECEIVED` for nils — `GetItemInfoInstant` does NOT return these):
+- `bindType` (field 14): 1 = BoP, 2 = BoE.
+- `expansionID` (field 15): the item's expansion → detect "old" loot vs the current
+  expansion (constant; **verify the `< current` test in-game** — some current leveling greens
+  report a lower expansionID).
+- equippable = non-empty `itemEquipLoc`; quality = `itemQuality`.
+
+Disposition (Keep / Vendor / Auction), all opt-in & OFF by default:
+- **Old-expansion BoP gear → Vendor (auto-sell):** bindType==1 (or already soulbound) AND
+  equippable AND `expansionID < current`. NEVER auto-sell current-expansion BoP (could be an
+  upgrade).
+- **BoE → AH-gate:** vendor ONLY if it won't sell on the AH; else tag Auction (Keep).
+  Sellability source: TSM region sale-rate → Auctionator price-exists → quality/class
+  heuristic. **Default KEEP when unsure** — never auto-vendor a listable BoE.
+- **Greys/poor → Vendor**; everything else → Keep unless marked.
+
+UI: a review window on `MERCHANT_SHOW` lists Vendor-tagged items (show bind + expansion so
+you see WHY each is tagged); left-click a row toggles it to Keep; a **Sell All** button
+vendors the rest via `C_Container.UseContainerItem(bag, slot)` (not protected). Pairs with
+the merchant-visit QoL (auto-repair guild-first, etc.).
+
+---
+
 ## UI / layout direction
 As features grow, one fixed panel won't fit. Direction:
 
@@ -311,8 +388,10 @@ Implementation notes:
   `/tim sound <id>` command, then lock the winners. "Time is money, friend!" is an
   NPC voiceover file, so probably `PlaySoundFile`, not a named kit.
 
-## Safety rules for auto-sell features — N/A (parked)
-No feature sells items anymore: #3 became a non-destructive estimate and #4 is
-advisory. Nothing here ever modifies your bags. Keep these rules on hand **only if
-an auto-sell feature is ever revived**: off by default, quality floor (grey only),
-blacklist respected, dry-run mode, and a sell log (vendor buyback holds only 12).
+## Safety rules for auto-sell features — ✅ ACTIVE (auto-sell revived by #14)
+#14 (farm-loot sell workflow) revives auto-vendoring, so these are now REQUIRED, not
+parked. Any feature that modifies bags MUST: be **off by default**; honor a **quality/ilvl
+floor**; respect the **never-sell blacklist**; offer a **dry-run/preview** before the first
+real sell; and keep a **sell log** (vendor buyback holds only the last 12 items, so a wrong
+sell can be hard to undo). The BoE AH-gate additionally **defaults to Keep when uncertain**
+so a listable BoE is never auto-vendored.

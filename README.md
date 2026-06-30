@@ -42,10 +42,12 @@ and the **This run** total and **Gold/hour** track that run. Stop it with `/tim 
 Start/Stop button) to print an end-of-run summary. The Today / 7-day / All-time totals keep
 accumulating regardless of runs.
 
-**Repairs are subtracted (net profit):** gold you spend on Repair All during a run is tracked,
-and the end-of-run summary shows **gross − repairs = net**, with Gold/hour based on net. The
-panel's run-status line shows the running repair deduction. (Captured from the merchant
-Repair-All button; guild-bank-funded repairs don't count. Consumables aren't tracked yet.)
+**Repairs are subtracted (net profit):** repair spending during a run is netted against it —
+**pro-rated to the wear *this run* caused**, so a pre-existing bill doesn't count — and
+**guild-funded repairs are skipped** (they cost you nothing). The end-of-run summary shows
+**gross − repairs = net**, Gold/hour is net, and the panel's run-status line shows the running
+deduction. (Repairs are the one cost the farming itself causes; general spending — AH, mail,
+purchases — is account bookkeeping and isn't tracked here.)
 
 The window shows combined **Gold/hour, This run, Today, Last 7 days, All-time**, a
 per-source run breakdown, and a 7-day bar chart.
@@ -67,7 +69,7 @@ per-source run breakdown, and a 7-day bar chart.
 - `/tim ah` · `/tim vendor` · `/tim exclude` — (shift-click an item) force it to AH price / vendor price / not counted
 - `/tim rules` — list your per-item rules · `/tim clearrule` — (shift-click) remove one
 - `/tim config` — open the options window (also: the Options button on the panel)
-- `/tim reset` — clear all tracked data (also: right-click the window)
+- `/tim reset` — clear all tracked data (also: the "Clear all data" button on the panel)
 - `/tim debug` — print each detected cast and recorded item
 
 ## Options
