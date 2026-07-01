@@ -30,6 +30,14 @@ local function RunStatus()
   return s
 end
 
+-- Gold/hour readout: live while running; when stopped, the frozen final rate, dimmed so
+-- it reads as "last run" rather than a live number.
+local function GPHText()
+  local txt = (SG.MoneyShort and SG.MoneyShort(SG.SessionGPH()) or SG.Money(SG.SessionGPH())) .. "/hr"
+  if not SG.RunActive() then txt = "|cff808080" .. txt .. "|r" end
+  return txt
+end
+
 function SG.InitUI()
   if frame then return end
 
@@ -76,7 +84,7 @@ function SG.InitUI()
     self._t = (self._t or 0) + elapsed
     if self._t > 1 then
       self._t = 0
-      gphFS:SetText(SG.Money(SG.SessionGPH()) .. "/hr")
+      gphFS:SetText(GPHText())
       if runStatusFS then runStatusFS:SetText(RunStatus()) end
     end
   end)
@@ -105,9 +113,23 @@ function SG.InitUI()
     bars[i] = { tex = b, lbl = lbl, val = val }
   end
 
+  local instBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+  instBtn:SetSize(120, 18)
+  instBtn:SetPoint("BOTTOM", -62, 30)
+  instBtn:SetText("Reset Instances")
+  instBtn:SetScript("OnClick", function() SG.ResetInstances() end)
+  instBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine("Reset dungeon instances")
+    GameTooltip:AddLine("Clears dungeon lockouts so you can re-run a farm.", 0.8, 0.8, 0.8, true)
+    GameTooltip:AddLine("Outside the instance, out of combat. Saved raids are unaffected.", 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+  end)
+  instBtn:SetScript("OnLeave", GameTooltip_Hide)
+
   local clearBtn = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
-  clearBtn:SetSize(110, 18)
-  clearBtn:SetPoint("BOTTOM", 0, 30)
+  clearBtn:SetSize(120, 18)
+  clearBtn:SetPoint("BOTTOM", 62, 30)
   clearBtn:SetText("Clear all data")
   clearBtn:SetScript("OnClick", function() StaticPopup_Show("TIMEISMONEY_RESET") end)
 
@@ -138,7 +160,7 @@ end
 
 function SG.RefreshUI()
   if not frame then return end
-  gphFS:SetText(SG.Money(SG.SessionGPH()) .. "/hr")
+  gphFS:SetText(GPHText())
   sessFS:SetText(SG.Money(SG.SessionValue()))
   todayFS:SetText(SG.Money(SG.TodayValue()))
   weekFS:SetText(SG.Money(SG.WeekValue()))
@@ -222,6 +244,14 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     if SG.ShowSellWindow then SG.ShowSellWindow(true) end
   elseif cmd == "sellwindow" then
     SG.ToggleSellWindow()
+  elseif cmd == "sellconfirm" then
+    SG.ToggleSellConfirm()
+  elseif cmd == "skipgreys" then
+    SG.ToggleSkipGreys()
+  elseif cmd == "sellilvl" then
+    SG.SetSellGearIlvl(arg)
+  elseif cmd == "selllog" then
+    SG.PrintSellLog()
   elseif cmd == "debug" then
     SG.ToggleDebug()
   elseif cmd == "config" or cmd == "options" then

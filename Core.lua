@@ -58,6 +58,9 @@ local DEFAULTS = {
     priceMode    = "sells",     -- "vendor" | "sells" (AH if it sells) | "ah" (AH always)
     saleRateMin  = 0.5,         -- "sells" mode: TSM region sold-per-day below this -> vendor price
     sellWindow   = true,        -- auto-open the sell-review window at a merchant (#14)
+    sellConfirm  = true,        -- confirm before vendoring gear/BoP or a large pile (#14)
+    sellSkipGreys = false,      -- leave greys for another trash-seller (e.g. RyrinQoL) (#14)
+    sellGearMaxIlvl = 220,      -- auto-vendor old-expansion BoP gear at/below this ilvl; 0 = never (#14)
     profs     = { skinning = true, mining = true, herbalism = true, tailoring = true, money = true },
   },
 }
@@ -87,6 +90,23 @@ local function Money(copper)
   return string.format("%dg", math.floor(copper / 10000))
 end
 SG.Money = Money
+
+-- Compact money for chat summaries: trims trailing denominations on big numbers
+-- (gold-only past 1000g, gold+silver past 1g) so a run total reads "923g 32s",
+-- not "923g 32s 59c". Keeps the coin icons, just drops the noise.
+local function MoneyShort(copper)
+  copper = math.floor(copper or 0)
+  local g = math.floor(copper / 10000)
+  if g >= 1000 then copper = g * 10000
+  elseif g >= 1 then copper = copper - (copper % 100) end
+  if GetCoinTextureString then return GetCoinTextureString(copper) end
+  return string.format("%dg", g)
+end
+SG.MoneyShort = MoneyShort
+
+-- A continuation line with NO "Time Is Money:" prefix, for clean multi-line output.
+local function PrintRaw(msg) print(tostring(msg)) end
+SG.PrintRaw = PrintRaw
 
 local function Bucket(t, key)
   if not t[key] then t[key] = { value = 0, count = 0 } end
@@ -159,19 +179,22 @@ local function StopRun()
   local repairs = SG.session.repairs or 0
   local net     = total - repairs
   local gph     = net / (math.max(dur, GPH_FLOOR) / 3600)
+  SG.session.finalGPH = gph          -- freeze: the panel shows this until the next run, no decay
 
+  local SEP = "  |cff5a5a5a·|r  "   -- subtle gray middot between fields
   if repairs > 0 then
-    Print(("Run ended - %s, %s gross - %s repairs = |cff8fd694%s net|r (%s/hr)"):format(
-      FmtDuration(dur), Money(total), Money(repairs), Money(net), Money(gph)))
+    Print(("|cffffd200Run ended|r" .. SEP .. "%s" .. SEP .. "%s gross - %s repairs = |cff8fd694%s net|r" .. SEP .. "|cffffd200%s/hr|r"):format(
+      FmtDuration(dur), MoneyShort(total), MoneyShort(repairs), MoneyShort(net), MoneyShort(gph)))
   else
-    Print(("Run ended - %s, %s total (%s/hr)"):format(FmtDuration(dur), Money(total), Money(gph)))
+    Print(("|cffffd200Run ended|r" .. SEP .. "%s" .. SEP .. "|cff8fd694%s|r made" .. SEP .. "|cffffd200%s/hr|r"):format(
+      FmtDuration(dur), MoneyShort(total), MoneyShort(gph)))
   end
   local parts = {}
   for _, p in ipairs(SG.PROFS) do
     local v = SG.SessionByProf(p)
-    if v > 0 then parts[#parts + 1] = ("%s %s"):format(SG.PROF_LABEL[p], Money(v)) end
+    if v > 0 then parts[#parts + 1] = ("|cffb0b0b0%s|r %s"):format(SG.PROF_LABEL[p], MoneyShort(v)) end
   end
-  if #parts > 0 then Print("   " .. table.concat(parts, "   ")) end
+  if #parts > 0 then PrintRaw("    " .. table.concat(parts, SEP)) end
   if SG.RefreshUI then SG.RefreshUI() end
 end
 
@@ -321,9 +344,9 @@ end
 ----------------------------------------------------------------------
 -- Sell workflow (#14): disposition engine + non-destructive preview
 ----------------------------------------------------------------------
--- Current expansion id. Items from older expansions are "old" loot. NOTE: some current
--- leveling greens report a lower expac id, so we apply the "old" gate ONLY to BoP gear,
--- where old + soulbound + equippable is a safe auto-sell signal.
+-- Current expansion id. NOTE: expansionID is UNRELIABLE for "is this current" - some
+-- current items report an older expac. So gear is never auto-sold on this tag alone; it's
+-- only a secondary gate behind the item-level floor (see the BoP-gear branch).
 local CURRENT_EXPANSION = _G.LE_EXPANSION_LEVEL_CURRENT or 99
 
 -- Do we have a real AH price for this item (TSM market or Auctionator)? If so it's listable.
@@ -375,12 +398,23 @@ end
 local function ItemDisposition(link)
   if not link then return "keep", "empty slot" end
   local itemID = tonumber(link:match("|Hitem:(%d+):"))
-  local _, _, quality, _, _, _, _, _, equipLoc, _, vendor, classID, _, bindType, expacID = C_Item.GetItemInfo(link)
+  local _, _, quality, ilvl, _, _, _, _, equipLoc, _, vendor, classID, _, bindType, expacID = C_Item.GetItemInfo(link)
   if quality == nil then return "keep", "not cached yet" end
   vendor = vendor or 0
 
+  -- Your per-item rules win over the auto-logic. "exclude" is a hard never-sell.
+  local rule = itemID and TimeIsMoneyDB.itemRules and TimeIsMoneyDB.itemRules[itemID]
+  if rule == "exclude" then return "keep", "excluded (your rule)" end
+
   if classID == 12 or vendor <= 0 then return "keep", "not vendor-sellable" end  -- quest / no sell price
-  if quality == 0 then return "vendor", "grey" end                               -- no AH market
+
+  if rule == "vendor" then return "vendor", "vendor (your rule)" end
+  if rule == "ah"     then return "auction", "keep for AH (your rule)" end
+
+  if quality == 0 then                                                           -- grey: no AH market
+    if settings.sellSkipGreys then return "keep", "grey (left for your trash-seller)" end
+    return "vendor", "grey"
+  end
 
   if bindType == 2 then                                                          -- Bind on Equip
     local s = AHSellability(link, itemID)
@@ -391,10 +425,15 @@ local function ItemDisposition(link)
 
   local equippable = equipLoc and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP"
   if bindType == 1 and equippable then                                           -- Bind on Pickup gear
-    if (expacID or 0) < CURRENT_EXPANSION then
-      return "vendor", ("old-expansion BoP gear (exp %s)"):format(tostring(expacID))
+    -- KEEP gear by default. expansionID is unreliable (current items sometimes report an
+    -- OLDER expac), so we never auto-sell gear on the expac tag alone. Vendor it only when
+    -- it's at/below YOUR ilvl floor (and from an older expac) - high-ilvl current pieces are
+    -- always safe even if mis-tagged. Otherwise right-click an item to vendor it explicitly.
+    local floor = settings.sellGearMaxIlvl or 0
+    if floor > 0 and (ilvl or 0) > 0 and ilvl <= floor and (expacID or 0) < CURRENT_EXPANSION then
+      return "vendor", ("old BoP gear, ilvl %d"):format(ilvl)
     end
-    return "keep", "current-expansion BoP (possible upgrade)"
+    return "keep", "BoP gear (kept; set /tim sellilvl or right-click to vendor)"
   end
 
   return "keep", "keep"
@@ -460,6 +499,67 @@ function SG.SellWindowEnabled() return settings.sellWindow ~= false end
 function SG.ToggleSellWindow()
   settings.sellWindow = (settings.sellWindow == false) and true or false
   Print("Sell-review window auto-open = " .. (settings.sellWindow ~= false and "|cff8fd694on|r" or "|cff808080off|r"))
+end
+
+function SG.SellConfirmEnabled() return settings.sellConfirm ~= false end
+function SG.ToggleSellConfirm()
+  settings.sellConfirm = (settings.sellConfirm == false) and true or false
+  Print("Confirm before selling gear/big piles = " .. (settings.sellConfirm ~= false and "|cff8fd694on|r" or "|cff808080off|r"))
+end
+
+function SG.ToggleSkipGreys()
+  settings.sellSkipGreys = not settings.sellSkipGreys
+  Print("Skip greys (leave them for another trash-seller) = " .. (settings.sellSkipGreys and "|cff8fd694on|r" or "|cff808080off|r"))
+end
+
+-- Item-level floor for auto-vendoring old BoP gear. 0 = never auto-vendor gear (default,
+-- safe: gear is always kept unless you right-click it). Gear is never sold on the expansion
+-- tag alone because that tag is unreliable for current items.
+function SG.SetSellGearIlvl(arg)
+  local n = tonumber(arg)
+  if not n then
+    Print(("Auto-vendor old BoP gear at/below ilvl: |cffffd200%d|r  (0 = never; e.g. /tim sellilvl 450)"):format(settings.sellGearMaxIlvl or 0))
+    return
+  end
+  settings.sellGearMaxIlvl = math.max(0, math.floor(n))
+  if settings.sellGearMaxIlvl == 0 then
+    Print("BoP gear auto-vendor |cff808080OFF|r - gear is always kept (right-click an item to vendor specific pieces).")
+  else
+    Print(("Will auto-vendor old-expansion BoP gear at/below |cffffd200ilvl %d|r."):format(settings.sellGearMaxIlvl))
+  end
+end
+
+-- Set/clear a per-item rule by itemID (used by the sell window's right-click menu).
+local RULE_LABEL = { vendor = "always vendor", exclude = "never sell", ah = "keep for AH" }
+function SG.SetItemRuleByID(rule, itemID, link)
+  if not itemID then return end
+  TimeIsMoneyDB.itemRules = TimeIsMoneyDB.itemRules or {}
+  TimeIsMoneyDB.itemRules[itemID] = rule
+  Print(("Rule set: %s -> |cff8fd694%s|r"):format(link or ("item:" .. itemID), RULE_LABEL[rule] or rule))
+end
+function SG.ClearItemRuleByID(itemID, link)
+  if not itemID then return end
+  if TimeIsMoneyDB.itemRules then TimeIsMoneyDB.itemRules[itemID] = nil end
+  Print(("Rule cleared: %s"):format(link or ("item:" .. itemID)))
+end
+
+-- Session sell log: what the sell window vendored this session. Buyback only holds the last
+-- 12 items, so this is the record of what to re-buy if you sold something by mistake.
+SG.sellLog = {}
+function SG.LogSale(link, count, value)
+  local t = SG.sellLog
+  t[#t + 1] = { link = link, count = count, value = value }
+  if #t > 60 then table.remove(t, 1) end
+end
+function SG.PrintSellLog()
+  local t = SG.sellLog
+  if #t == 0 then Print("No sales recorded this session."); return end
+  local from = math.max(1, #t - 14)
+  Print(("|cff8fd694Sell log|r (this session, showing %d of %d):"):format(#t - from + 1, #t))
+  for i = from, #t do
+    local e = t[i]
+    Print(("  %s x%d  %s"):format(e.link, e.count, Money(e.value)))
+  end
 end
 
 ----------------------------------------------------------------------
@@ -625,7 +725,10 @@ local function SpellName(spellID)
     local info = C_Spell.GetSpellInfo(spellID)
     return info and info.name
   end
-  return (GetSpellInfo(spellID))
+  -- Legacy fallback only: the global GetSpellInfo was removed on retail 12.x, so guard it
+  -- (feature-detect) rather than call a nil. Present only on classic builds.
+  if GetSpellInfo then return (GetSpellInfo(spellID)) end
+  return nil
 end
 
 ----------------------------------------------------------------------
@@ -662,6 +765,18 @@ function SG.SessionValue()
   return s
 end
 
+-- Reset dungeon instances (clear lockouts so you can re-run a farm). Guards for the cases
+-- the game refuses, so the user gets a plain message instead of a silent no-op.
+function SG.ResetInstances()
+  if InCombatLockdown() then Print("Can't reset instances in combat."); return end
+  if IsInInstance() then Print("Leave the instance first, then reset."); return end
+  if IsInGroup() and not UnitIsGroupLeader("player") then
+    Print("Only the group leader can reset instances."); return
+  end
+  ResetInstances()
+  Print("Reset instances requested. (Dungeon lockouts cleared; saved raids are unaffected. Blizzard limits resets per hour.)")
+end
+
 function SG.SessionByProf(prof)
   local b = SG.session.data[prof]
   return b and b.value or 0
@@ -670,6 +785,8 @@ end
 function SG.SessionGPH()
   local s = SG.session
   if not s.start then return 0 end
+  if not s.active then return s.finalGPH or 0 end   -- run stopped: show the frozen final rate, don't let the rolling window decay
+  if s.paused then return s.liveGPH or 0 end         -- paused: hold the rate as of the pause, don't decay while idle
   local now, ev = GetTime(), s.events
   local window = (settings and settings.gphWindow or 10) * 60
 
@@ -686,7 +803,8 @@ function SG.SessionGPH()
   if elapsed <= 0 then elapsed = now - s.start end
   local span  = math.min(elapsed, window)
   local denom = math.max(span, GPH_FLOOR)
-  return recent / (denom / 3600)
+  s.liveGPH = recent / (denom / 3600)   -- cache so pause can hold this value
+  return s.liveGPH
 end
 
 function SG.ResetData()
