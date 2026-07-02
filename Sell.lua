@@ -102,8 +102,8 @@ local function SellList(list)
       sold, gold = sold + 1, gold + e.value
     end
   end
-  SG.Print(("Sold |cffffffff%d|r item(s) for ~%s.  |cff808080(/tim selllog to review, Undo last to buy back)|r"):format(sold, SG.Money(gold)))
-  C_Timer.After(0.3, function() if win and win:IsShown() then Rescan() end end)
+  SG.Print(("Sold |cffffffff%d|r item(s) for ~%s.  |cff808080(/tim selllog to review; /tim sell to reopen and Undo)|r"):format(sold, SG.Money(gold)))
+  if win then win:Hide() end   -- close after Sell All; reopen with /tim sell (buyback/Undo still available)
 end
 
 local function DoSellAll()

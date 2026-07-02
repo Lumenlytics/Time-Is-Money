@@ -5,7 +5,7 @@ local frame, tabs, content, activeTab, ticker
 -- Tab A (Run detail)
 local timerFS, gphFS, sessFS, coinFS, repairFS, netFS, durFS, breakdownFS, labelEdit, runBtn, pauseBtn, resetBtn
 -- Tab B (Weekly)
-local todayFS, weekFS, allFS, bars, chartLabel
+local todayFS, weekFS, allFS, bars, chartLabel, bestRunFS
 
 local TABS = { "Run", "Weekly", "Farm", "Sell" }
 local WIN_W, WIN_H = 470, 420   -- ALL tabs share one size (no jarring resize)
@@ -16,6 +16,36 @@ StaticPopupDialogs["TIMEISMONEY_RESET"] = {
   OnAccept = function() SG.ResetData() end,
   timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
 }
+
+-- Run Journal (#16): label-this-run prompt on Stop Run.
+StaticPopupDialogs["TIMEISMONEY_LABELRUN"] = {
+  text = "Name this run (for your farm journal):",
+  button1 = SAVE or "Save",
+  button2 = "Skip",
+  hasEditBox = true, editBoxWidth = 260,
+  OnShow = function(self, data)
+    self.editBox:SetText((data and data._prefill) or "")
+    self.editBox:HighlightText(); self.editBox:SetFocus()
+  end,
+  OnAccept = function(self, data)
+    if data then data.label = self.editBox:GetText(); SG.SaveRun(data) end
+  end,
+  OnCancel = function(self, data) if data then SG.SaveRun(data) end end,  -- "Skip" saves with the default label
+  EditBoxOnEnterPressed = function(self, data)
+    if data then data.label = self:GetText(); SG.SaveRun(data) end
+    self:GetParent():Hide()
+  end,
+  EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+  timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
+}
+
+function SG.PromptRunLabel(rec)
+  local pre = rec.label
+  if (not pre or pre == "") and rec.zone then pre = TimeIsMoneyDB.zoneLabels[rec.zone] end
+  if not pre or pre == "" then pre = (rec.zone ~= "" and rec.zone) or "Run" end
+  rec._prefill = pre
+  StaticPopup_Show("TIMEISMONEY_LABELRUN", nil, nil, rec)
+end
 
 ----------------------------------------------------------------------
 -- Helpers
@@ -71,7 +101,8 @@ end
 local function RefreshTicker()
   if not ticker then return end
   ticker.timer:SetText(FmtClock(SG.RunElapsed()))
-  ticker.info:SetText(("|cff8fd694%s|r   |cff808080%s|r"):format(Short(SG.SessionValue()), GPHText()))
+  ticker.gold:SetText(("This run: |cff8fd694%s|r"):format(Short(SG.SessionValue())))
+  ticker.gph:SetText(GPHText())
   ticker.runBtn:SetText(SG.RunActive() and "Stop" or "Start")
   ticker.pauseBtn:SetText(SG.RunPaused() and "Resume" or "Pause")
   ticker.pauseBtn:SetEnabled(SG.RunActive())
@@ -80,7 +111,7 @@ end
 local function BuildTicker()
   if ticker then return end
   ticker = CreateFrame("Frame", "TimeIsMoneyTicker", UIParent, "BackdropTemplate")
-  ticker:SetSize(176, 92)
+  ticker:SetSize(176, 110)
   ticker:SetFrameStrata("FULLSCREEN_DIALOG")   -- always-on-top HUD widget
   ticker:SetToplevel(true)
   local pos = TimeIsMoneyDB and TimeIsMoneyDB.settings and TimeIsMoneyDB.settings.tickerPos
@@ -95,8 +126,10 @@ local function BuildTicker()
 
   ticker.timer = ticker:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   ticker.timer:SetPoint("TOP", 0, -6); ticker.timer:SetFont(STANDARD_TEXT_FONT, 22, "OUTLINE")
-  ticker.info = ticker:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  ticker.info:SetPoint("TOP", ticker.timer, "BOTTOM", 0, -3)
+  ticker.gold = ticker:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+  ticker.gold:SetPoint("TOP", ticker.timer, "BOTTOM", 0, -4)
+  ticker.gph = ticker:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  ticker.gph:SetPoint("TOP", ticker.gold, "BOTTOM", 0, -2)
 
   ticker.runBtn = CreateFrame("Button", nil, ticker, "UIPanelButtonTemplate")
   ticker.runBtn:SetSize(80, 20); ticker.runBtn:SetPoint("BOTTOMLEFT", 6, 6)
@@ -259,26 +292,33 @@ function SG.InitUI()
   weekFS  = StatRow(cB, "Last 7 days", -50)
   allFS   = StatRow(cB, "All-time",    -72)
 
-  chartLabel = cB:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  chartLabel:SetPoint("TOPLEFT", 12, -104)
-  chartLabel:SetText("Banked per day - last 7 days")
+  bestRunFS = cB:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  bestRunFS:SetPoint("TOPLEFT", 12, -94); bestRunFS:SetPoint("TOPRIGHT", -12, -94); bestRunFS:SetJustifyH("LEFT")
 
-  local chartW, chartH = 436, 224
+  chartLabel = cB:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  chartLabel:SetPoint("TOPLEFT", 12, -116)
+  chartLabel:SetText("Banked per day (last 7):  |cffffd700coin|r  |cff9d9d9dvendor|r  |cff4d94ffAH|r")
+
+  local chartW, chartH = 436, 196
   local chart = CreateFrame("Frame", nil, cB)
-  chart:SetSize(chartW, chartH); chart:SetPoint("TOPLEFT", 12, -122)
+  chart:SetSize(chartW, chartH); chart:SetPoint("TOPLEFT", 12, -134)
   bars = {}
   local n, gap = 7, 10
   local bw = (chartW - gap * (n - 1)) / n
   for i = 1, n do
-    local b = chart:CreateTexture(nil, "ARTWORK")
-    b:SetColorTexture(0.32, 0.72, 0.45, 0.95)
-    b:SetWidth(bw)
-    b:SetPoint("BOTTOMLEFT", (i - 1) * (bw + gap), 16)
+    local x = (i - 1) * (bw + gap)
+    -- Stacked by realized category: coin (gold) -> vendor (grey) -> AH (blue), bottom up.
+    local coin = chart:CreateTexture(nil, "ARTWORK"); coin:SetColorTexture(1.0, 0.84, 0.0, 0.95)
+    coin:SetWidth(bw); coin:SetPoint("BOTTOMLEFT", x, 16)
+    local vend = chart:CreateTexture(nil, "ARTWORK"); vend:SetColorTexture(0.62, 0.62, 0.62, 0.95)
+    vend:SetWidth(bw); vend:SetPoint("BOTTOMLEFT", coin, "TOPLEFT", 0, 0)
+    local ah = chart:CreateTexture(nil, "ARTWORK"); ah:SetColorTexture(0.30, 0.58, 1.0, 0.95)
+    ah:SetWidth(bw); ah:SetPoint("BOTTOMLEFT", vend, "TOPLEFT", 0, 0)
     local lbl = chart:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    lbl:SetPoint("TOP", b, "BOTTOM", 0, -2)
+    lbl:SetPoint("TOP", coin, "BOTTOM", 0, -2)
     local val = chart:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-    val:SetPoint("BOTTOM", b, "TOP", 0, 1)
-    bars[i] = { tex = b, lbl = lbl, val = val }
+    val:SetPoint("BOTTOM", ah, "TOP", 0, 1)
+    bars[i] = { coin = coin, vend = vend, ah = ah, lbl = lbl, val = val }
   end
 
   ------------------------------------------------------------------
@@ -343,8 +383,8 @@ function SG.RefreshUI()
     pauseBtn:SetEnabled(SG.RunActive())
   end
   if resetBtn then resetBtn:SetEnabled(SG.RunActive()) end
-  if labelEdit and not labelEdit:HasFocus() and labelEdit:GetText() == "" then
-    labelEdit:SetText(GetFarmLabel())
+  if labelEdit and not labelEdit:HasFocus() then
+    labelEdit:SetText(SG.session.label or GetFarmLabel())
   end
   if breakdownFS then
     local parts = {}
@@ -358,20 +398,35 @@ function SG.RefreshUI()
   if todayFS then todayFS:SetText(SG.Money(SG.LiquidatedDay(date("%Y-%m-%d")))) end
   if weekFS  then weekFS:SetText(SG.Money(SG.LiquidatedWeek())) end
   if allFS   then allFS:SetText(SG.Money(SG.LiquidatedAllTime())) end
+  if bestRunFS then
+    local best = SG.BestRunSince and SG.BestRunSince(time() - 7 * 86400)
+    if best then
+      bestRunFS:SetText(("|cffffd200Best run this week:|r %s - %s net"):format(
+        best.label or "Run", SG.Money(best.net or 0)))
+    else
+      bestRunFS:SetText("|cff808080No runs logged this week yet.|r")
+    end
+  end
   if bars then
-    local vals, maxV = {}, 1
+    local days, maxV = {}, 1
     for i = 1, 7 do
       local t = time() - (7 - i) * 86400
-      local v = SG.LiquidatedDay(date("%Y-%m-%d", t))
-      vals[i] = { v = v, t = t }
-      if v > maxV then maxV = v end
+      local d = TimeIsMoneyDB.days[date("%Y-%m-%d", t)]
+      local coin = d and d.money  and d.money.value  or 0
+      local vend = d and d.sold   and d.sold.value   or 0
+      local ah   = d and d.ahSold and d.ahSold.value or 0
+      local tot  = coin + vend + ah
+      days[i] = { coin = coin, vend = vend, ah = ah, tot = tot, t = t }
+      if tot > maxV then maxV = tot end
     end
-    local maxH = 200
+    local maxH = 160
     for i = 1, 7 do
-      local b = bars[i]
-      b.tex:SetHeight(math.max(1, (vals[i].v / maxV) * maxH))
-      b.lbl:SetText(date("%a", vals[i].t):sub(1, 2))
-      b.val:SetText(vals[i].v > 0 and ("%dg"):format(math.floor(vals[i].v / 10000)) or "")
+      local b, dd = bars[i], days[i]
+      b.coin:SetHeight(math.max(0.01, dd.coin / maxV * maxH))
+      b.vend:SetHeight(math.max(0.01, dd.vend / maxV * maxH))
+      b.ah:SetHeight(math.max(0.01, dd.ah / maxV * maxH))
+      b.lbl:SetText(date("%a", dd.t):sub(1, 2))
+      b.val:SetText(dd.tot > 0 and ("%dg"):format(math.floor(dd.tot / 10000)) or "")
     end
   end
 
@@ -400,6 +455,10 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     SG.PauseRun()
   elseif cmd == "ticker" or cmd == "timer" then
     SG.ToggleTicker()
+  elseif cmd == "runs" or cmd == "journal" then
+    SG.PrintRuns()
+  elseif cmd == "labelprompt" then
+    SG.ToggleRunLabelPrompt()
   elseif cmd == "autostart" then
     SG.ToggleAutoStart()
   elseif cmd == "drops" then

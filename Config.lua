@@ -61,7 +61,7 @@ function SG.InitConfig()
   if cfg then return end
 
   cfg = CreateFrame("Frame", "TimeIsMoneyConfigFrame", UIParent, "BackdropTemplate")
-  cfg:SetSize(380, 414)
+  cfg:SetSize(400, 414)
   cfg:SetPoint("CENTER", 60, 0)
   cfg:SetMovable(true)
   cfg:EnableMouse(true)
@@ -88,14 +88,16 @@ function SG.InitConfig()
 
   -- Income sources
   Label(cfg, 16, -44, "Track income sources", "GameFontHighlight")
-  Checkbox(cfg, 16, -62, "Skinning",
+  Checkbox(cfg, 12, -62, "Skinning",
     function() return S().profs.skinning end, function(v) S().profs.skinning = v end)
-  Checkbox(cfg, 102, -62, "Mining",
+  Checkbox(cfg, 90, -62, "Mining",
     function() return S().profs.mining end, function(v) S().profs.mining = v end)
-  Checkbox(cfg, 182, -62, "Herbalism",
+  Checkbox(cfg, 164, -62, "Herbalism",
     function() return S().profs.herbalism end, function(v) S().profs.herbalism = v end)
-  Checkbox(cfg, 280, -62, "Tailoring",
+  Checkbox(cfg, 250, -62, "Tailoring",
     function() return S().profs.tailoring end, function(v) S().profs.tailoring = v end)
+  Checkbox(cfg, 330, -62, "Fishing",
+    function() return S().profs.fishing end, function(v) S().profs.fishing = v end)
   Checkbox(cfg, 16, -86, "Coin (looted gold)",
     function() return S().profs.money end, function(v) S().profs.money = v end)
   Checkbox(cfg, 200, -86, "Auto-start runs",

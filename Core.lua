@@ -7,10 +7,10 @@ local SG = ns
 -- "money" is a pseudo-profession: raw coin looted in the field. It flows through
 -- the same buckets as the gathering professions, so it shows up in every total,
 -- the session breakdown, the daily chart, and the GPH figure automatically.
-SG.PROFS = { "skinning", "mining", "herbalism", "tailoring", "money", "drops" }
-SG.PROF_LABEL = { skinning = "Skinning", mining = "Mining", herbalism = "Herbalism", tailoring = "Tailoring", money = "Coin", drops = "Drops" }
+SG.PROFS = { "skinning", "mining", "herbalism", "tailoring", "fishing", "money", "drops" }
+SG.PROF_LABEL = { skinning = "Skinning", mining = "Mining", herbalism = "Herbalism", tailoring = "Tailoring", fishing = "Fishing", money = "Coin", drops = "Drops" }
 
-local SKILL_LINE = { [393] = "skinning", [186] = "mining", [182] = "herbalism" }
+local SKILL_LINE = { [393] = "skinning", [186] = "mining", [182] = "herbalism", [356] = "fishing" }
 
 -- Fallback cast-name -> profession (English; extend via /tim debug if a locale differs)
 local FALLBACK_NAMES = {
@@ -18,6 +18,7 @@ local FALLBACK_NAMES = {
   ["Mining"]         = "mining",
   ["Herbalism"]      = "herbalism",
   ["Herb Gathering"] = "herbalism",
+  ["Fishing"]        = "fishing",
 }
 
 -- Modern retail prefixes the gather spell with the expansion, e.g. "Midnight Mining",
@@ -29,6 +30,7 @@ local PROF_KEYWORDS = {
   { "mining",         "mining"    },
   { "herbalism",      "herbalism" },
   { "herb gathering", "herbalism" },
+  { "fishing",        "fishing"   },
 }
 
 local function ProfFromName(name)
@@ -47,7 +49,10 @@ local DEFAULTS = {
   items     = {},  -- [itemID] = { name, count, value, prof }
   totals    = {},  -- prof -> {value,count}
   itemRules = {},  -- [itemID] = "ah" | "vendor" | "exclude" (per-item override of the pricing mode)
+  runs      = {},  -- Run Journal (#16): { {label, time, dur, value, net, coin, zone, itype, gph}, ... }
+  zoneLabels = {}, -- zone -> last label used there (pre-fills the stop-run popup)
   settings = {
+    runLabelPrompt = true,      -- pop the "label this run" dialog on Stop Run (#16)
     window    = 2.0,            -- seconds: loot attributed to a gather after its cast
     debug     = false,
     gphWindow = 10,             -- minutes: rolling window for the Gold/hour figure
@@ -61,7 +66,7 @@ local DEFAULTS = {
     sellConfirm  = true,        -- confirm before vendoring gear/BoP or a large pile (#14)
     sellSkipGreys = false,      -- leave greys for another trash-seller (e.g. RyrinQoL) (#14)
     sellGearMaxIlvl = 220,      -- auto-vendor old-expansion BoP gear at/below this ilvl; 0 = never (#14)
-    profs     = { skinning = true, mining = true, herbalism = true, tailoring = true, money = true },
+    profs     = { skinning = true, mining = true, herbalism = true, tailoring = true, fishing = true, money = true },
   },
 }
 
@@ -175,6 +180,7 @@ local function StartRun(auto)
   SG.session.lastActivity = GetTime()
   SG.session.repairs      = 0
   SG.session.startMissing = MissingDurability()
+  SG.session.label        = nil
   wipe(SG.session.data)
   wipe(SG.session.events)
   Print(auto and "Run started automatically. Stop any time with /tim run."
@@ -208,7 +214,58 @@ local function StopRun()
     if v > 0 then parts[#parts + 1] = ("|cffb0b0b0%s|r %s"):format(SG.PROF_LABEL[p], MoneyShort(v)) end
   end
   if #parts > 0 then PrintRaw("    " .. table.concat(parts, SEP)) end
+
+  -- Run Journal (#16): log any run with real activity. Prompt for a label if enabled.
+  if total > 0 or dur >= 30 then
+    local rec = {
+      label   = SG.session.label,
+      time    = time(), dur = dur, value = total, net = net,
+      coin    = SG.SessionByProf("money"), repairs = repairs, gph = gph,
+      zone    = GetRealZoneText(), itype = select(2, IsInInstance()),
+    }
+    if SG.PromptRunLabel and settings.runLabelPrompt then SG.PromptRunLabel(rec)
+    else SG.SaveRun(rec) end
+  end
+
   if SG.RefreshUI then SG.RefreshUI() end
+end
+
+-- Persist a completed run into the journal (capped), and remember the label for its zone
+-- so the next run there pre-fills the same name.
+function SG.SaveRun(rec)
+  if not rec then return end
+  if not rec.label or rec.label == "" then rec.label = (rec.zone ~= "" and rec.zone) or "Run" end
+  local runs = TimeIsMoneyDB.runs
+  runs[#runs + 1] = rec
+  while #runs > 100 do table.remove(runs, 1) end
+  if rec.zone and rec.zone ~= "" then TimeIsMoneyDB.zoneLabels[rec.zone] = rec.label end
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
+-- Highest-net run since an epoch (for "most profitable run this week").
+function SG.BestRunSince(since)
+  local best
+  for _, r in ipairs(TimeIsMoneyDB.runs or {}) do
+    if (r.time or 0) >= since and (not best or (r.net or 0) > (best.net or 0)) then best = r end
+  end
+  return best
+end
+
+function SG.ToggleRunLabelPrompt()
+  settings.runLabelPrompt = not settings.runLabelPrompt
+  Print("Label-this-run popup on Stop = " .. (settings.runLabelPrompt and "|cff8fd694on|r" or "|cff808080off|r"))
+end
+
+function SG.PrintRuns()
+  local runs = TimeIsMoneyDB.runs or {}
+  if #runs == 0 then Print("No runs logged yet. Finish a run to add one."); return end
+  local from = math.max(1, #runs - 9)
+  Print(("|cff8fd694Run journal|r (last %d of %d):"):format(#runs - from + 1, #runs))
+  for i = from, #runs do
+    local r = runs[i]
+    PrintRaw(("  |cffffd200%s|r  %s  net %s  |cff808080(%s)|r"):format(
+      r.label or "Run", FmtDuration(r.dur or 0), Money(r.net or 0), r.zone ~= "" and r.zone or "?"))
+  end
 end
 
 -- Called by the recorders: make sure a run is live so the loot has somewhere to go.
@@ -750,8 +807,11 @@ local function OnLoot(msg)
 
   local itemID = tonumber(link:match("|Hitem:(%d+):"))
   local prof
-  if lastGatherProf and (GetTime() - lastGatherAt) <= (settings.window or 2.0) then
-    -- A gather (skinning/mining/herbalism) just happened; this loot belongs to it.
+  -- Fishing loot arrives seconds after the cast (you cast, wait for a bite, then loot),
+  -- so it needs a much longer attribution window than instant gathers.
+  local window = (lastGatherProf == "fishing") and 30 or (settings.window or 2.0)
+  if lastGatherProf and (GetTime() - lastGatherAt) <= window then
+    -- A gather (skinning/mining/herbalism/fishing) just happened; this loot belongs to it.
     prof = lastGatherProf
   elseif settings.profs and settings.profs.tailoring and IsCloth(itemID) then
     -- No active gather: cloth picked up off a kill counts as tailoring farming.

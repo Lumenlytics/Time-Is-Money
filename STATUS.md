@@ -1,48 +1,43 @@
 # Time Is Money — Build Status (living doc)
 
-Last updated: 2026-07-01. Shipped features are in git; this tracks what's IN PROGRESS and PENDING.
+Last updated: 2026-07-02.
 
 ## Committed & shipped (on `main`)
-- v0.12.0 money correctness (repair pro-rating, guild-repair fix, clear-all)
-- #14 farm-loot sell workflow (Stages 1-3: disposition, review window, safety harness)
-- Reliable ilvl gear gate (self-healing 220 floor) + liquidated-gold chart + price-source note
-- GPH freeze-on-stop, Reset Instances button, chat cleanup, GetSpellInfo guard
+- v0.12.0 money correctness; #14 sell workflow (Stages 1-3); ilvl gear gate; GPH freeze;
+  Reset Instances; chat cleanup.
+- Tabbed UI Phase 1 (fixed-size 4 tabs, detailed Tab A, detachable Floating Timer w/ Start/
+  Pause). — commit 7c2a307
+- AH-sale capture (mailbox) + banked-only Weekly totals + Tab A durability. — commit 1d71237
 
-## In progress — the tabbed UI rework (from the mockup)
-**Phase 1 — tabbed shell + Tab A + floating timer — BUILT, in testing, NOT committed.**
-- Fixed-size 4-tab window (Run / Weekly / Farm / Sell), no resize.
-- Tab A: detailed run info + Run Label (auto-zone) + Reset Instances + controls.
-- Tab B: Today/7d/All-time + liquidated chart.
-- Tab C / Tab D: stubs.
-- Detachable "Floating Timer" widget: timer + run gold + GPH + Start/Pause, always-on-top,
-  saves position/shown state.
-- → ACTION: confirm it's good, then commit.
+## Built, IN TESTING, not yet committed
+- **Fishing** as a tracked gather source (cast keyword + fish-loot; 30s attribution window
+  since fishing loot is delayed). Cooking/Archaeology deliberately NOT tracked.
+- **Phase 2 — Run Journal + stacked chart + most-profitable-run:**
+  - Persistent per-run log `TimeIsMoneyDB.runs` (capped 100): {label, time, dur, value, net,
+    coin, repairs, gph, zone, itype}. Saved on Stop Run.
+  - **Label-this-run popup** on Stop (pre-fills from the Run Label field / that zone's last
+    label / the zone name); `zoneLabels` remembers per-zone. Toggle: `/tim labelprompt`.
+  - Tab A Run Label field mirrors `session.label` (auto-zone; cleared each run start).
+  - **Tab B chart is now STACKED by realized category** — coin (gold) / vendor (grey) /
+    AH (blue), with a colour legend.
+  - **"Best run this week"** line on Tab B (highest-net run in last 7 days).
+  - `/tim runs` (alias `/tim journal`) prints the recent run log.
 
-## Pending phases (not started)
-- **Phase 2 — Run Journal backend + stacked-by-category chart + most-profitable-run.**
-  Persistent per-run log {label, time, duration, per-source, liquidated, location}. Tab B chart
-  becomes STACKED by realized category (Coin=gold FFD700, Vendor=grey 9d9d9d, AH=blue 0070dd).
-  "Most profitable run this week" line.
-- **Phase 3 — AH-sale-mail capture (#8).** Read mailbox "Auction successful", count net gold once
-  on collection → feeds liquidated totals + Tab B AH trends. (Currently AH sales are NOT tracked
-  anywhere — neither the bars nor the Today line include them.)
-- **Phase 4 — Tab C farm intel (#15).** AH Hot Commodity (supply-depth via C_AuctionHouse /
-  Auctionator, no TSM), Previous Farm Locations (filterable, from the journal), Professions
-  (current char, ALL professions incl. Engineering/Cooking/Fishing/Archaeology), Reset All Data.
-- **Phase 5 — Sell window → Tab D** (integrate #14's window as the tab; keep merchant auto-pop).
+## Pending phases
+- **Phase 4 — Tab C farm intel (#15):** AH Hot Commodity (supply-depth via C_AuctionHouse /
+  Auctionator, no TSM), Previous Farm Locations (from the journal, filterable), Professions
+  (current char, all incl. Fishing/Engineering/etc.), Reset All Data.
+- **Phase 5 — Sell window -> Tab D** (mirror #14's window as the tab; keep merchant auto-pop).
 
-## Pending nitpicks / smaller items
-- [ ] **GPH window presets** in Options: "World farming (steady, ~8m)" vs "Dungeon/Raid (bursty,
-      ~20m)" checkboxes that set the smoothing window; keep a custom-minutes advanced fallback.
-- [ ] **Add Fishing** as a tracked gather source (cast + fish-loot detection). Cooking = crafting,
-      NOT tracked as income (would double-count mats). Archaeology = niche, optional later.
-- [ ] **Weekly-tab clarity (DECISION PENDING):** show BOTH "banked" (liquidated) and "gathered"
-      (estimate) per line, labeled, + a one-line legend — vs. switching lines to banked-only.
-      Root of the "Today 2475g but bar 543g" confusion = estimate vs liquidated, unlabeled.
-- [ ] **Options-panel checkboxes** for the sell settings (currently slash-only: `/tim sellconfirm`,
-      `/tim skipgreys`, `/tim sellilvl`, `/tim sellwindow`).
+## Pending nitpicks
+- [ ] **GPH presets** in Options: World farming (~8m) vs Dungeon/Raid (~20m) smoothing, +
+      custom-minutes fallback.
+- [ ] **Sounds + goblin badging pass:** Sounds.lua (master + per-event toggles) + a
+      `/tim sound <id>` / `/tim soundfile <id>` tester to hunt the goblin "Time is money,
+      friend!" line; wire run-start/stop/sell sounds. Plus a coin/goblin icon + header badge.
+      (Awaiting user's pick of which sounds.)
+- [ ] **Options-panel checkboxes** for sell + new toggles (currently slash-only).
 
-## Open decisions waiting on user
-1. Weekly tab: show both metrics labeled (recommended) vs banked-only.
-2. GPH preset default minutes (proposed 8m world / 20m dungeon-raid — OK?).
-3. Archaeology: track its loot eventually, or leave out?
+## Resolved
+- Weekly logic = BANKED ONLY (coin + vendor + AH), per user. Estimate stays as the live
+  run guide on Tab A + the floating widget.
