@@ -3,7 +3,7 @@ local SG = ns
 
 local frame, tabs, content, activeTab, ticker
 -- Tab A (Run detail)
-local timerFS, gphFS, sessFS, coinFS, repairFS, netFS, breakdownFS, labelEdit, runBtn, pauseBtn, resetBtn
+local timerFS, gphFS, sessFS, coinFS, repairFS, netFS, durFS, breakdownFS, labelEdit, runBtn, pauseBtn, resetBtn
 -- Tab B (Weekly)
 local todayFS, weekFS, allFS, bars, chartLabel
 
@@ -224,43 +224,48 @@ function SG.InitUI()
   timerFS:SetFont(STANDARD_TEXT_FONT, 40, "OUTLINE")
   timerFS:SetText("0:00")
 
-  gphFS    = StatRow(cA, "Gold / hour",   -96)
+  gphFS    = StatRow(cA, "Gold / hour",    -96)
   sessFS   = StatRow(cA, "This run (est)", -118)
-  coinFS   = StatRow(cA, "Coin",          -140)
-  repairFS = StatRow(cA, "Repairs",       -162)
-  netFS    = StatRow(cA, "Net",           -184)
+  coinFS   = StatRow(cA, "Coin",           -140)
+  repairFS = StatRow(cA, "Repairs",        -162)
+  netFS    = StatRow(cA, "Net",            -184)
+  durFS    = StatRow(cA, "Durability",     -206)
 
   breakdownFS = cA:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  breakdownFS:SetPoint("TOPLEFT", 12, -212); breakdownFS:SetPoint("TOPRIGHT", -12, -212); breakdownFS:SetJustifyH("LEFT")
+  breakdownFS:SetPoint("TOPLEFT", 12, -232); breakdownFS:SetPoint("TOPRIGHT", -12, -232); breakdownFS:SetJustifyH("LEFT")
 
+  -- Run controls grouped together along the bottom.
   runBtn = CreateFrame("Button", nil, cA, "UIPanelButtonTemplate")
-  runBtn:SetSize(80, 22); runBtn:SetPoint("BOTTOMLEFT", 4, 4)
+  runBtn:SetSize(84, 22); runBtn:SetPoint("BOTTOMLEFT", 4, 4)
   runBtn:SetText("Start Run"); runBtn:SetScript("OnClick", function() SG.ToggleRun() end)
   pauseBtn = CreateFrame("Button", nil, cA, "UIPanelButtonTemplate")
-  pauseBtn:SetSize(70, 22); pauseBtn:SetPoint("LEFT", runBtn, "RIGHT", 6, 0)
+  pauseBtn:SetSize(72, 22); pauseBtn:SetPoint("LEFT", runBtn, "RIGHT", 6, 0)
   pauseBtn:SetText("Pause"); pauseBtn:SetScript("OnClick", function() SG.PauseRun() end)
   resetBtn = CreateFrame("Button", nil, cA, "UIPanelButtonTemplate")
   resetBtn:SetSize(64, 22); resetBtn:SetPoint("LEFT", pauseBtn, "RIGHT", 6, 0)
   resetBtn:SetText("Reset"); resetBtn:SetScript("OnClick", function() SG.ResetRun() end)
   local optBtn = CreateFrame("Button", nil, cA, "UIPanelButtonTemplate")
-  optBtn:SetSize(70, 22); optBtn:SetPoint("BOTTOMRIGHT", -4, 4)
+  optBtn:SetSize(72, 22); optBtn:SetPoint("LEFT", resetBtn, "RIGHT", 6, 0)
   optBtn:SetText("Options"); optBtn:SetScript("OnClick", function() SG.ToggleConfig() end)
 
   ------------------------------------------------------------------
   -- Tab B: weekly / lifetime + liquidated chart
   ------------------------------------------------------------------
   local cB = content[2]
-  todayFS = StatRow(cB, "Today",       -6)
-  weekFS  = StatRow(cB, "Last 7 days", -28)
-  allFS   = StatRow(cB, "All-time",    -50)
+  local bHdr = cB:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  bHdr:SetPoint("TOPLEFT", 12, -6); bHdr:SetPoint("TOPRIGHT", -12, -6); bHdr:SetJustifyH("LEFT")
+  bHdr:SetText("|cff8fd694Gold banked|r - what actually hit your wallet (coin + vendor + AH sales)")
+  todayFS = StatRow(cB, "Today",       -28)
+  weekFS  = StatRow(cB, "Last 7 days", -50)
+  allFS   = StatRow(cB, "All-time",    -72)
 
   chartLabel = cB:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  chartLabel:SetPoint("TOPLEFT", 12, -82)
-  chartLabel:SetText("Liquidated gold - last 7 days (coin + vendor sales)")
+  chartLabel:SetPoint("TOPLEFT", 12, -104)
+  chartLabel:SetText("Banked per day - last 7 days")
 
-  local chartW, chartH = 436, 240
+  local chartW, chartH = 436, 224
   local chart = CreateFrame("Frame", nil, cB)
-  chart:SetSize(chartW, chartH); chart:SetPoint("TOPLEFT", 12, -100)
+  chart:SetSize(chartW, chartH); chart:SetPoint("TOPLEFT", 12, -122)
   bars = {}
   local n, gap = 7, 10
   local bw = (chartW - gap * (n - 1)) / n
@@ -323,6 +328,14 @@ function SG.RefreshUI()
     repairFS:SetText(r > 0 and ("|cffff7070-" .. Short(r) .. "|r") or Short(0))
   end
   if netFS   then netFS:SetText("|cff8fd694" .. Short(SG.SessionNet()) .. "|r") end
+  if durFS then
+    local d = SG.DurabilityPct and SG.DurabilityPct()
+    if not d then durFS:SetText("|cff808080-|r")
+    else
+      local c = (d < 30) and "|cffff4040" or (d < 60) and "|cffffd200" or "|cff8fd694"
+      durFS:SetText(("%s%d%%|r"):format(c, math.floor(d + 0.5)))
+    end
+  end
   if timerFS then timerFS:SetText(FmtClock(SG.RunElapsed())) end
   if runBtn then runBtn:SetText(SG.RunActive() and "Stop Run" or "Start Run") end
   if pauseBtn then
@@ -341,10 +354,10 @@ function SG.RefreshUI()
     breakdownFS:SetText(table.concat(parts, "   "))
   end
 
-  -- Tab B
-  if todayFS then todayFS:SetText(SG.Money(SG.TodayValue())) end
-  if weekFS  then weekFS:SetText(SG.Money(SG.WeekValue())) end
-  if allFS   then allFS:SetText(SG.Money(SG.AllTimeValue())) end
+  -- Tab B (banked / liquidated only)
+  if todayFS then todayFS:SetText(SG.Money(SG.LiquidatedDay(date("%Y-%m-%d")))) end
+  if weekFS  then weekFS:SetText(SG.Money(SG.LiquidatedWeek())) end
+  if allFS   then allFS:SetText(SG.Money(SG.LiquidatedAllTime())) end
   if bars then
     local vals, maxV = {}, 1
     for i = 1, 7 do

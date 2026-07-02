@@ -75,7 +75,8 @@ local lastGatherProf
 local settings
 local warnedNoSource = false
 local atMerchant, lastRepairCost, lastMissing = false, 0, 0   -- repair tracking (#6 net profit)
-local lastMoney   -- wallet snapshot; used to detect vendor-sale income for the liquidated chart
+local atMailbox = false   -- true while the mailbox is open (AH-sale income capture)
+local lastMoney   -- wallet snapshot; used to detect vendor-sale + AH-sale income (liquidated)
 
 ----------------------------------------------------------------------
 -- Utilities
@@ -135,6 +136,17 @@ local function MissingDurability()
     if cur and max and max > 0 then missing = missing + (max - cur) end
   end
   return missing
+end
+
+-- Current equipped durability as a percentage (nil if no gear reports durability).
+function SG.DurabilityPct()
+  local cur, max = 0, 0
+  for slot = 1, 18 do
+    local c, m = GetInventoryItemDurability(slot)
+    if c and m and m > 0 then cur = cur + c; max = max + m end
+  end
+  if max == 0 then return nil end
+  return cur / max * 100
 end
 
 ----------------------------------------------------------------------
@@ -689,6 +701,22 @@ local function RecordSale(copper)
   if SG.RefreshUI then SG.RefreshUI() end
 end
 
+-- Realized AH-sale gold -> the daily "ahSold" bucket (money received at the mailbox). Like
+-- vendor sales, kept out of the estimate totals; feeds liquidated. Captured via PLAYER_MONEY
+-- positive delta while the mailbox is open (see events) - simple + robust; for a farmer nearly
+-- all mailbox income is auction gold. (Precise "Auction successful" subject-matching later.)
+local function RecordAHSale(copper)
+  if not copper or copper <= 0 then return end
+  local today = Today()
+  local day = TimeIsMoneyDB.days[today]
+  if not day then day = {}; TimeIsMoneyDB.days[today] = day end
+  local b = Bucket(day, "ahSold")
+  b.value = b.value + copper
+  b.count = b.count + 1
+  if settings.debug then Print(("AH sale: +%s (liquidated)"):format(Money(copper))) end
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
 ----------------------------------------------------------------------
 -- Loot-message parsing (locale-safe)
 ----------------------------------------------------------------------
@@ -764,13 +792,28 @@ end
 SG.SumDay = SumDay
 
 -- Liquidated gold that actually hit your wallet that day: looted coin + realized vendor
--- sales. (No estimated item value.) Used by the daily chart.
+-- sales + realized AH sales. (No estimated item value.) Used by the chart AND the totals.
 function SG.LiquidatedDay(day)
   local d = TimeIsMoneyDB.days[day]
   if not d then return 0 end
-  local coin = d.money and d.money.value or 0
-  local sold = d.sold  and d.sold.value  or 0
-  return coin + sold
+  local coin = d.money  and d.money.value  or 0
+  local sold = d.sold   and d.sold.value   or 0
+  local ah   = d.ahSold and d.ahSold.value or 0
+  return coin + sold + ah
+end
+
+function SG.LiquidatedWeek()
+  local s = 0
+  for i = 0, 6 do s = s + SG.LiquidatedDay(date("%Y-%m-%d", time() - i * 86400)) end
+  return s
+end
+
+-- Banked total across every recorded day (coin + vendor + AH). Iterating days is fine -
+-- the table is bounded by how long you've played.
+function SG.LiquidatedAllTime()
+  local s = 0
+  for day in pairs(TimeIsMoneyDB.days) do s = s + SG.LiquidatedDay(day) end
+  return s
 end
 
 function SG.TodayValue() return SumDay(Today()) end
@@ -1025,6 +1068,8 @@ f:RegisterEvent("CHAT_MSG_MONEY")
 f:RegisterEvent("PLAYER_MONEY")
 f:RegisterEvent("MERCHANT_SHOW")
 f:RegisterEvent("MERCHANT_CLOSED")
+f:RegisterEvent("MAIL_SHOW")
+f:RegisterEvent("MAIL_CLOSED")
 f:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
 
 -- Book repair spending: keep the live repair cost while at a merchant, then record
@@ -1099,10 +1144,14 @@ f:SetScript("OnEvent", function(_, event, ...)
     local now = GetMoney()
     if lastMoney ~= nil then
       local delta = now - lastMoney
-      -- Positive change while at a merchant = a vendor sale (realized gold) -> liquidated
-      -- chart. Coin loot fires in the field (not atMerchant) via CHAT_MSG_MONEY, so no
-      -- double count. Negative deltas (repairs/purchases/buyback) are ignored here.
-      if delta > 0 and atMerchant then RecordSale(delta) end
+      -- Positive change tells us realized income, categorized by WHERE it happened:
+      --   at a merchant -> vendor sale;  at the mailbox -> AH sale.
+      -- Looted coin fires in the field (neither flag) via CHAT_MSG_MONEY, so no double
+      -- count. Negative deltas (repairs/purchases/buyback/postage) are ignored here.
+      if delta > 0 then
+        if atMerchant then RecordSale(delta)
+        elseif atMailbox then RecordAHSale(delta) end
+      end
     end
     lastMoney = now
 
@@ -1113,6 +1162,12 @@ f:SetScript("OnEvent", function(_, event, ...)
 
   elseif event == "MERCHANT_CLOSED" then
     atMerchant = false
+
+  elseif event == "MAIL_SHOW" then
+    atMailbox = true
+
+  elseif event == "MAIL_CLOSED" then
+    atMailbox = false
 
   elseif event == "UPDATE_INVENTORY_DURABILITY" then
     if atMerchant then
