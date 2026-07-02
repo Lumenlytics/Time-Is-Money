@@ -91,7 +91,7 @@ function SG.InitUI()
 
   local chartLabel = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   chartLabel:SetPoint("TOPLEFT", 16, -172)
-  chartLabel:SetText("Daily value (last 7 days)")
+  chartLabel:SetText("Liquidated gold - last 7 days (coin + vendor sales)")
 
   local chartW, chartH = 258, 120
   local chart = CreateFrame("Frame", nil, frame)
@@ -185,7 +185,7 @@ function SG.RefreshUI()
   local vals, maxV = {}, 1
   for i = 1, 7 do
     local t = time() - (7 - i) * 86400
-    local v = SG.SumDay(date("%Y-%m-%d", t))
+    local v = SG.LiquidatedDay(date("%Y-%m-%d", t))
     vals[i] = { v = v, t = t }
     if v > maxV then maxV = v end
   end

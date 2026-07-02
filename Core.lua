@@ -75,6 +75,7 @@ local lastGatherProf
 local settings
 local warnedNoSource = false
 local atMerchant, lastRepairCost, lastMissing = false, 0, 0   -- repair tracking (#6 net profit)
+local lastMoney   -- wallet snapshot; used to detect vendor-sale income for the liquidated chart
 
 ----------------------------------------------------------------------
 -- Utilities
@@ -416,23 +417,24 @@ local function ItemDisposition(link)
     return "vendor", "grey"
   end
 
+  local equippable = equipLoc and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP"
+  -- Low ITEM LEVEL is the reliable "old junk gear" signal. expansionID is unreliable in both
+  -- directions (current items can report an older expac, old items the current one), and the
+  -- squish means current gear sits well above a sane floor - so we gate purely on ilvl, no
+  -- expac test. Applies to equippable gear only (BoP and unpriceable BoE alike).
+  local gearFloor  = settings.sellGearMaxIlvl or 0
+  local belowFloor = equippable and gearFloor > 0 and (ilvl or 0) > 0 and ilvl <= gearFloor
+
   if bindType == 2 then                                                          -- Bind on Equip
     local s = AHSellability(link, itemID)
     if s == "sells" then return "auction", "BoE, sells on AH" end
     if s == "wont"  then return "vendor", "BoE, won't sell on AH" end
+    if belowFloor  then return "vendor", ("old BoE, ilvl %d (no AH price)"):format(ilvl) end
     return "keep", "BoE, no price source - kept (can't judge)"                   -- safe default
   end
 
-  local equippable = equipLoc and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP"
   if bindType == 1 and equippable then                                           -- Bind on Pickup gear
-    -- KEEP gear by default. expansionID is unreliable (current items sometimes report an
-    -- OLDER expac), so we never auto-sell gear on the expac tag alone. Vendor it only when
-    -- it's at/below YOUR ilvl floor (and from an older expac) - high-ilvl current pieces are
-    -- always safe even if mis-tagged. Otherwise right-click an item to vendor it explicitly.
-    local floor = settings.sellGearMaxIlvl or 0
-    if floor > 0 and (ilvl or 0) > 0 and ilvl <= floor and (expacID or 0) < CURRENT_EXPANSION then
-      return "vendor", ("old BoP gear, ilvl %d"):format(ilvl)
-    end
+    if belowFloor then return "vendor", ("old BoP gear, ilvl %d"):format(ilvl) end
     return "keep", "BoP gear (kept; set /tim sellilvl or right-click to vendor)"
   end
 
@@ -575,7 +577,12 @@ local function RecordLoot(prof, link, qty)
   local unitVal, source = AHValue(link, itemID)
 
   if source == "none" and not warnedNoSource then
-    Print("No price source found - install TradeSkillMaster or Auctionator for AH values. Using vendor price for now.")
+    if HasPriceSourceInstalled() then
+      -- Source IS installed - the item just has no recorded price yet (and no vendor value).
+      Print("Some looted items have no recorded price yet (and no vendor value) - open/scan the Auction House so your price addon can value them. Counting those at 0 until then.")
+    else
+      Print("No price source found - install TradeSkillMaster or Auctionator for AH values. Using vendor price for now.")
+    end
     warnedNoSource = true
   end
 
@@ -667,6 +674,21 @@ local function RecordMoney(copper)
   if SG.RefreshUI then SG.RefreshUI() end
 end
 
+-- Realized vendor-sale gold -> the daily "sold" bucket. Deliberately kept OUT of the PROF
+-- sources and the estimate totals (This run / Today / All-time / GPH), so those keep showing
+-- the live *estimate*; only the daily chart reads liquidated gold (coin + sold). Not run-gated.
+local function RecordSale(copper)
+  if not copper or copper <= 0 then return end
+  local today = Today()
+  local day = TimeIsMoneyDB.days[today]
+  if not day then day = {}; TimeIsMoneyDB.days[today] = day end
+  local b = Bucket(day, "sold")
+  b.value = b.value + copper
+  b.count = b.count + 1
+  if settings.debug then Print(("sold: +%s (liquidated)"):format(Money(copper))) end
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
 ----------------------------------------------------------------------
 -- Loot-message parsing (locale-safe)
 ----------------------------------------------------------------------
@@ -740,6 +762,16 @@ local function SumDay(day)
   return s
 end
 SG.SumDay = SumDay
+
+-- Liquidated gold that actually hit your wallet that day: looted coin + realized vendor
+-- sales. (No estimated item value.) Used by the daily chart.
+function SG.LiquidatedDay(day)
+  local d = TimeIsMoneyDB.days[day]
+  if not d then return 0 end
+  local coin = d.money and d.money.value or 0
+  local sold = d.sold  and d.sold.value  or 0
+  return coin + sold
+end
 
 function SG.TodayValue() return SumDay(Today()) end
 
@@ -990,6 +1022,7 @@ f:RegisterEvent("SKILL_LINES_CHANGED")
 f:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
 f:RegisterEvent("CHAT_MSG_LOOT")
 f:RegisterEvent("CHAT_MSG_MONEY")
+f:RegisterEvent("PLAYER_MONEY")
 f:RegisterEvent("MERCHANT_SHOW")
 f:RegisterEvent("MERCHANT_CLOSED")
 f:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
@@ -1024,10 +1057,17 @@ f:SetScript("OnEvent", function(_, event, ...)
       MergeDefaults(TimeIsMoneyDB, DEFAULTS)
       settings = TimeIsMoneyDB.settings
       MigrateOldData()
+      -- One-time: adopt the 220 gear floor for DBs that predate the setting (saved as 0,
+      -- which MergeDefaults can't overwrite). Runs once; after this the user can set 0.
+      if not TimeIsMoneyDB.didGearFloorMigration then
+        if (settings.sellGearMaxIlvl or 0) == 0 then settings.sellGearMaxIlvl = 220 end
+        TimeIsMoneyDB.didGearFloorMigration = true
+      end
     end
 
   elseif event == "PLAYER_LOGIN" then
     RefreshGathering()
+    lastMoney = GetMoney()
     if SG.InitUI then SG.InitUI() end
     if SG.RefreshUI then SG.RefreshUI() end
 
@@ -1054,6 +1094,17 @@ f:SetScript("OnEvent", function(_, event, ...)
     if settings and settings.profs and settings.profs.money then
       RecordMoney(ParseMoney((...)))
     end
+
+  elseif event == "PLAYER_MONEY" then
+    local now = GetMoney()
+    if lastMoney ~= nil then
+      local delta = now - lastMoney
+      -- Positive change while at a merchant = a vendor sale (realized gold) -> liquidated
+      -- chart. Coin loot fires in the field (not atMerchant) via CHAT_MSG_MONEY, so no
+      -- double count. Negative deltas (repairs/purchases/buyback) are ignored here.
+      if delta > 0 and atMerchant then RecordSale(delta) end
+    end
+    lastMoney = now
 
   elseif event == "MERCHANT_SHOW" then
     atMerchant = true
