@@ -288,6 +288,81 @@ the merchant-visit QoL (auto-repair guild-first, etc.).
 
 ---
 
+## 15. Farm-target list ("what's worth farming")  — Medium/Hard — ⏳ PLANNED
+Answer "where should I hunt?" Built around the user's 6-point AH strategy. KEY REFRAME: lead
+with **supply depth (competition)**, which is directly readable from the AH and largely
+SUBSTITUTES for velocity — so #15's MVP needs NO TSM region data.
+
+- **Candidate set:** BROAD (user's choice) — farmable categories by item class/subclass
+  (Trade Goods: herb/ore/leather/cloth/cooking/enchanting mats; consumable reagents), not just
+  items TIM has seen. "Durable-demand" categories (consumables raiders/M+ burn each reset) get
+  flagged as baseline demand.
+- **Supply depth = the moneymaker signal (user point 2):** on AH open, query a targeted list
+  via `C_AuctionHouse` (GetItemSearchResults / GetCommoditySearchResults) — or read Auctionator's
+  scan — for # sellers, total qty listed, undercut depth, price spread → a **competition score**.
+  Thin/awkward supply + real demand = good farm; 40-sellers-30-pages = race to the bottom. This
+  needs only the AH open, no velocity data. (Throttle/target the queries; full scan is rate-limited.)
+- **Value:** Auctionator `GetAuctionPriceByItemID` (or TSM market). Present now.
+- **Velocity = OPTIONAL bonus, not required.** True sold-per-day needs TSM **Desktop App**
+  region data (user currently has none — the obtrusive TSM UI is NOT needed, only the background
+  Desktop-App sync; read via `TSM_API.GetCustomPriceValue("DBRegionSoldPerDay", ...)`). If the
+  user won't run the Desktop App, skip velocity or build our own sell-through from AH-sale mail
+  (#8). DECISION (pending): run TSM Desktop App for velocity, vs supply-depth-only MVP, vs #8.
+- **Barriers/moat (user point 3):** tag item source group-vs-world (from #16) to surface
+  "annoying = fewer competitors"; prof/spec gates stay human judgment — tool informs, doesn't decide.
+- **Score idea:** demand-category × (1/supply-depth) × value × your-measured-output(#16) →
+  "worth farming," sorted.
+- **Synergy with #16:** the Run Journal supplies user points 4 (match-to-character) and 5
+  (test-run + measure) — YOUR real gold/hour per farm — and point 6 (two-lane pivot: flag a
+  staple saturating via rising supply depth). #16 is the measured half; #15 is the market half.
+- Feasibility: supply-depth + value + demand-category ✅ NOW (Auctionator + C_AuctionHouse);
+  true velocity ⚠️ needs TSM Desktop App or #8.
+
+## 16. Run Journal (labeled run history + two color-coded views)  — Medium/Hard — ⏳ PLANNED
+Covers user's 2a + 2b — same per-run data, two colour lenses. Runs are currently EPHEMERAL
+(only lifetime totals persist); this adds a **persistent, capped per-run log**.
+
+- **On Stop Run → label popup:** edit box that **autocompletes from labels you've used before**
+  (store a label list in the DB). Saves a run record:
+  `{ label, time, duration, perSource gold, liquidated total, location(s) }`.
+- **View A — colour by REALIZED gold category (2a), LOCKED palette (2026-06-30):**
+  the daily bars are STACKED by *liquidated* gold (not the estimate), 3 buckets:
+  **Coin** = looted gold = gold `FFD700`; **Vendor** = junk sold to a vendor = grey `9d9d9d`;
+  **AH** = items sold on the Auction House = blue `0070dd`. Optional later refinements: split
+  Vendor into trash/gear (only if all selling routes through TIM's Sell window), split AH by
+  item type via mail subject.
+- **View B — colour by LOCATION (2b):** world / dungeon / raid / scenario via
+  `IsInInstance()` (instanceType) + zone via `C_Map.GetBestMapForUnit("player")`; dungeon =
+  colour A, world = B, raid = C, … (location→colour ruleset TBD together).
+- **AH sales -> liquidated (feeds this + the daily/weekly/all-time totals):** capture via the
+  MAILBOX (#8) — match `AUCTION_SOLD_MAIL_SUBJECT`, count the NET gold **once, on collection**
+  (guard against inbox-refresh re-adds). Third realized source alongside coin + vendor-sold.
+  NO per-run attribution (stacked mats are fungible - can't trace a sale to a run); instead do
+  **category-level realized ROI** (herbs realized X vs your time farming them from #16). No
+  double-count: coin=CHAT_MSG_MONEY(field), vendor=PLAYER_MONEY(at merchant), AH=mailbox — three
+  disjoint paths; the loot ESTIMATE is a separate metric never in the liquidated bars.
+- Capture location at run start (and/or per-loot for multi-zone runs). Cap the log (last N
+  runs) + prune. This supersedes/absorbs the old "per-zone/per-mob stats" idea below.
+- Feasibility: ✅ all pieces available (per-source data exists; label store; C_Map/IsInInstance;
+  mailbox for AH #8).
+
+### Tabbed UI (from user mockup 2026-06-30) — the shell all of #14/#15/#16 live in
+The whole addon becomes a **4-tab window that RESIZES per tab** (Tab A small, B-D large):
+- **Tab A — compact live-run widget** (keep on screen during a run): Reset Instances + one
+  TBD box (leading idea: an auto-labelling **Run Label** field that pre-fills the current zone
+  and becomes the run's journal name), 7-seg run timer, Gold/hr, This Run, per-source
+  breakdown, Start/Stop · Pause · Reset · Options. (= today's panel, minus the chart.)
+- **Tab B — weekly view:** the stacked realized-gold daily chart (palette above) + "most
+  profitable run this week" (from the journal) + a weekly AH trends report (needs accumulated
+  AH snapshots, appears after ~1-2 weeks).
+- **Tab C — AH/farm intel (#15):** buttons → AH Hot Commodity (what's selling, supply-depth
+  based, no TSM), Previous Farm Locations (filterable, from journal), Professions (CURRENT
+  CHARACTER ONLY - warrior shows BS, DH shows LW) vs what's selling, Reset All Data.
+- **Tab D — the Sell window (#14)** built in as a tab; still auto-pops at a merchant AND
+  mirrors here.
+
+---
+
 ## UI / layout direction
 As features grow, one fixed panel won't fit. Direction:
 
