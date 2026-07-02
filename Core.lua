@@ -45,13 +45,14 @@ end
 -- Saved-data defaults
 ----------------------------------------------------------------------
 local DEFAULTS = {
-  days      = {},  -- ["YYYY-MM-DD"] = { skinning={value,count}, mining=..., herbalism=... }
-  items     = {},  -- [itemID] = { name, count, value, prof }
-  totals    = {},  -- prof -> {value,count}
-  itemRules = {},  -- [itemID] = "ah" | "vendor" | "exclude" (per-item override of the pricing mode)
-  runs      = {},  -- Run Journal (#16): { {label, time, dur, value, net, coin, zone, itype, gph}, ... }
-  zoneLabels = {}, -- zone -> last label used there (pre-fills the stop-run popup)
+  -- Per-character ledgers: chars["Name-Realm"] = { days, totals, items, runs }.
+  -- days/items/totals/runs used to live at the top level (account-wide); a one-time
+  -- migration sweeps any old top-level data into the current character (see MigrateToChars).
+  chars     = {},
+  itemRules = {},  -- [itemID] = "ah" | "vendor" | "exclude" (account-wide - rules apply to all chars)
+  zoneLabels = {}, -- zone -> last label used there (account-wide; pre-fills the stop-run popup)
   settings = {
+    viewScope = "char",         -- "char" (this character only) | "account" (all characters) (#per-char)
     runLabelPrompt = true,      -- pop the "label this run" dialog on Stop Run (#16)
     window    = 2.0,            -- seconds: loot attributed to a gather after its cast
     debug     = false,
@@ -118,6 +119,39 @@ SG.PrintRaw = PrintRaw
 local function Bucket(t, key)
   if not t[key] then t[key] = { value = 0, count = 0 } end
   return t[key]
+end
+
+-- Per-character ledger keying ------------------------------------------------
+local function CharKey()
+  local n = UnitName("player") or "?"
+  local r = (GetNormalizedRealmName and GetNormalizedRealmName()) or GetRealmName() or "?"
+  return n .. "-" .. r
+end
+SG.CharKey = CharKey
+
+-- Current (or named) character's ledger bucket, created on demand.
+local function CD(key)
+  key = key or CharKey()
+  local c = TimeIsMoneyDB.chars[key]
+  if not c then c = { days = {}, totals = {}, items = {}, runs = {} }; TimeIsMoneyDB.chars[key] = c end
+  return c
+end
+SG.CD = CD
+
+-- Character keys in the current view scope: just the current char, or all of them.
+local function ScopeKeys()
+  if settings and settings.viewScope == "account" then
+    local t = {}
+    for k in pairs(TimeIsMoneyDB.chars) do t[#t + 1] = k end
+    return t
+  end
+  return { CharKey() }
+end
+
+-- Liquidated gold for one day-table (coin + vendor + AH). Not scoped.
+local function DayLiquidated(d)
+  if not d then return 0 end
+  return (d.money and d.money.value or 0) + (d.sold and d.sold.value or 0) + (d.ahSold and d.ahSold.value or 0)
 end
 
 local function MergeDefaults(dst, src)
@@ -235,18 +269,21 @@ end
 function SG.SaveRun(rec)
   if not rec then return end
   if not rec.label or rec.label == "" then rec.label = (rec.zone ~= "" and rec.zone) or "Run" end
-  local runs = TimeIsMoneyDB.runs
+  local runs = CD().runs
   runs[#runs + 1] = rec
   while #runs > 100 do table.remove(runs, 1) end
   if rec.zone and rec.zone ~= "" then TimeIsMoneyDB.zoneLabels[rec.zone] = rec.label end
   if SG.RefreshUI then SG.RefreshUI() end
 end
 
--- Highest-net run since an epoch (for "most profitable run this week").
+-- Highest-net run since an epoch (for "most profitable run this week"), across the scope.
 function SG.BestRunSince(since)
   local best
-  for _, r in ipairs(TimeIsMoneyDB.runs or {}) do
-    if (r.time or 0) >= since and (not best or (r.net or 0) > (best.net or 0)) then best = r end
+  for _, key in ipairs(ScopeKeys()) do
+    local c = TimeIsMoneyDB.chars[key]
+    if c then for _, r in ipairs(c.runs) do
+      if (r.time or 0) >= since and (not best or (r.net or 0) > (best.net or 0)) then best = r end
+    end end
   end
   return best
 end
@@ -256,9 +293,18 @@ function SG.ToggleRunLabelPrompt()
   Print("Label-this-run popup on Stop = " .. (settings.runLabelPrompt and "|cff8fd694on|r" or "|cff808080off|r"))
 end
 
+-- View scope: "char" (this character) or "account" (all characters combined).
+function SG.ViewScope() return settings.viewScope == "account" and "account" or "char" end
+function SG.ScopeLabel() return SG.ViewScope() == "account" and "Account" or "This character" end
+function SG.ToggleScope()
+  settings.viewScope = (SG.ViewScope() == "account") and "char" or "account"
+  Print("View = |cff8fd694" .. SG.ScopeLabel() .. "|r")
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
 function SG.PrintRuns()
-  local runs = TimeIsMoneyDB.runs or {}
-  if #runs == 0 then Print("No runs logged yet. Finish a run to add one."); return end
+  local runs = CD().runs
+  if #runs == 0 then Print("No runs logged yet on this character. Finish a run to add one."); return end
   local from = math.max(1, #runs - 9)
   Print(("|cff8fd694Run journal|r (last %d of %d):"):format(#runs - from + 1, #runs))
   for i = from, #runs do
@@ -662,23 +708,24 @@ local function RecordLoot(prof, link, qty)
     return
   end
 
+  local cd = CD()
   local today = Today()
 
-  local day = TimeIsMoneyDB.days[today]
-  if not day then day = {}; TimeIsMoneyDB.days[today] = day end
+  local day = cd.days[today]
+  if not day then day = {}; cd.days[today] = day end
   local db = Bucket(day, prof)
   db.value = db.value + total
   db.count = db.count + qty
 
-  local tb = Bucket(TimeIsMoneyDB.totals, prof)
+  local tb = Bucket(cd.totals, prof)
   tb.value = tb.value + total
   tb.count = tb.count + qty
 
   if itemID then
-    local it = TimeIsMoneyDB.items[itemID]
+    local it = cd.items[itemID]
     if not it then
       it = { name = (C_Item.GetItemInfo(link)) or link, count = 0, value = 0, prof = prof }
-      TimeIsMoneyDB.items[itemID] = it
+      cd.items[itemID] = it
     end
     it.count = it.count + qty
     it.value = it.value + total
@@ -720,14 +767,15 @@ end
 local function RecordMoney(copper)
   if not copper or copper <= 0 then return end
 
+  local cd = CD()
   local today = Today()
-  local day = TimeIsMoneyDB.days[today]
-  if not day then day = {}; TimeIsMoneyDB.days[today] = day end
+  local day = cd.days[today]
+  if not day then day = {}; cd.days[today] = day end
   local db = Bucket(day, "money")
   db.value = db.value + copper
   db.count = db.count + 1
 
-  local tb = Bucket(TimeIsMoneyDB.totals, "money")
+  local tb = Bucket(cd.totals, "money")
   tb.value = tb.value + copper
   tb.count = tb.count + 1
 
@@ -748,9 +796,10 @@ end
 -- the live *estimate*; only the daily chart reads liquidated gold (coin + sold). Not run-gated.
 local function RecordSale(copper)
   if not copper or copper <= 0 then return end
+  local cd = CD()
   local today = Today()
-  local day = TimeIsMoneyDB.days[today]
-  if not day then day = {}; TimeIsMoneyDB.days[today] = day end
+  local day = cd.days[today]
+  if not day then day = {}; cd.days[today] = day end
   local b = Bucket(day, "sold")
   b.value = b.value + copper
   b.count = b.count + 1
@@ -764,9 +813,10 @@ end
 -- all mailbox income is auction gold. (Precise "Auction successful" subject-matching later.)
 local function RecordAHSale(copper)
   if not copper or copper <= 0 then return end
+  local cd = CD()
   local today = Today()
-  local day = TimeIsMoneyDB.days[today]
-  if not day then day = {}; TimeIsMoneyDB.days[today] = day end
+  local day = cd.days[today]
+  if not day then day = {}; cd.days[today] = day end
   local b = Bucket(day, "ahSold")
   b.value = b.value + copper
   b.count = b.count + 1
@@ -844,22 +894,38 @@ end
 ----------------------------------------------------------------------
 -- Public helpers used by the UI
 ----------------------------------------------------------------------
+-- Estimated value for a day, summed across the characters in the current view scope.
 local function SumDay(day)
-  local d, s = TimeIsMoneyDB.days[day], 0
-  if d then for _, p in ipairs(SG.PROFS) do if d[p] then s = s + d[p].value end end end
+  local s = 0
+  for _, key in ipairs(ScopeKeys()) do
+    local c = TimeIsMoneyDB.chars[key]
+    local d = c and c.days[day]
+    if d then for _, p in ipairs(SG.PROFS) do if d[p] then s = s + d[p].value end end end
+  end
   return s
 end
 SG.SumDay = SumDay
 
--- Liquidated gold that actually hit your wallet that day: looted coin + realized vendor
--- sales + realized AH sales. (No estimated item value.) Used by the chart AND the totals.
+-- Liquidated coin/vendor/AH for a day, summed across the current scope. Returns the three
+-- buckets separately (for the stacked chart) plus the total.
+function SG.DayBuckets(day)
+  local coin, vend, ah = 0, 0, 0
+  for _, key in ipairs(ScopeKeys()) do
+    local c = TimeIsMoneyDB.chars[key]
+    local d = c and c.days[day]
+    if d then
+      coin = coin + (d.money  and d.money.value  or 0)
+      vend = vend + (d.sold   and d.sold.value   or 0)
+      ah   = ah   + (d.ahSold and d.ahSold.value or 0)
+    end
+  end
+  return coin, vend, ah, coin + vend + ah
+end
+
+-- Liquidated gold that hit your wallet that day (coin + vendor + AH), scoped.
 function SG.LiquidatedDay(day)
-  local d = TimeIsMoneyDB.days[day]
-  if not d then return 0 end
-  local coin = d.money  and d.money.value  or 0
-  local sold = d.sold   and d.sold.value   or 0
-  local ah   = d.ahSold and d.ahSold.value or 0
-  return coin + sold + ah
+  local _, _, _, tot = SG.DayBuckets(day)
+  return tot
 end
 
 function SG.LiquidatedWeek()
@@ -868,11 +934,13 @@ function SG.LiquidatedWeek()
   return s
 end
 
--- Banked total across every recorded day (coin + vendor + AH). Iterating days is fine -
--- the table is bounded by how long you've played.
+-- Banked total across every recorded day for the scoped characters.
 function SG.LiquidatedAllTime()
   local s = 0
-  for day in pairs(TimeIsMoneyDB.days) do s = s + SG.LiquidatedDay(day) end
+  for _, key in ipairs(ScopeKeys()) do
+    local c = TimeIsMoneyDB.chars[key]
+    if c then for _, d in pairs(c.days) do s = s + DayLiquidated(d) end end
+  end
   return s
 end
 
@@ -886,8 +954,11 @@ end
 
 function SG.AllTimeValue()
   local s = 0
-  for _, p in ipairs(SG.PROFS) do
-    local t = TimeIsMoneyDB.totals[p]; if t then s = s + t.value end
+  for _, key in ipairs(ScopeKeys()) do
+    local c = TimeIsMoneyDB.chars[key]
+    if c then for _, p in ipairs(SG.PROFS) do
+      local t = c.totals[p]; if t then s = s + t.value end
+    end end
   end
   return s
 end
@@ -943,9 +1014,7 @@ function SG.SessionGPH()
 end
 
 function SG.ResetData()
-  TimeIsMoneyDB.days   = {}
-  TimeIsMoneyDB.items  = {}
-  TimeIsMoneyDB.totals = {}
+  TimeIsMoneyDB.chars[CharKey()] = { days = {}, totals = {}, items = {}, runs = {} }  -- this character only
   SG.session.active = false
   SG.session.paused = false
   SG.session.pausedAccum = 0
@@ -956,7 +1025,7 @@ function SG.ResetData()
   SG.session.data   = {}
   SG.session.events = {}
   if SG.RefreshUI then SG.RefreshUI() end
-  Print("All tracked data cleared.")
+  Print("Tracked data cleared for this character.")
 end
 
 function SG.ToggleDebug()
@@ -1063,9 +1132,10 @@ end
 -- One-time import of older addon data (GatherGold, then SkinnerGold)
 ----------------------------------------------------------------------
 local function ImportNewStructure(src)
+  local cd = CD()
   for day, d in pairs(src.days or {}) do
     if type(d) == "table" then
-      local nd = TimeIsMoneyDB.days[day] or {}
+      local nd = cd.days[day] or {}
       for _, p in ipairs(SG.PROFS) do
         if type(d[p]) == "table" then
           local b = Bucket(nd, p)
@@ -1073,12 +1143,12 @@ local function ImportNewStructure(src)
           b.count = b.count + (d[p].count or 0)
         end
       end
-      TimeIsMoneyDB.days[day] = nd
+      cd.days[day] = nd
     end
   end
   for _, p in ipairs(SG.PROFS) do
     if type(src.totals) == "table" and type(src.totals[p]) == "table" then
-      local t = Bucket(TimeIsMoneyDB.totals, p)
+      local t = Bucket(cd.totals, p)
       t.value = t.value + (src.totals[p].value or 0)
       t.count = t.count + (src.totals[p].count or 0)
     end
@@ -1086,17 +1156,18 @@ local function ImportNewStructure(src)
 end
 
 local function ImportFlatSkinning(src)
+  local cd = CD()
   for day, d in pairs(src.days or {}) do
     if type(d) == "table" and type(d.value) == "number" then
-      local nd = TimeIsMoneyDB.days[day] or {}
+      local nd = cd.days[day] or {}
       local b = Bucket(nd, "skinning")
       b.value = b.value + d.value
       b.count = b.count + (d.count or 0)
-      TimeIsMoneyDB.days[day] = nd
+      cd.days[day] = nd
     end
   end
   if type(src.totalValue) == "number" then
-    local t = Bucket(TimeIsMoneyDB.totals, "skinning")
+    local t = Bucket(cd.totals, "skinning")
     t.value = t.value + src.totalValue
     t.count = t.count + (src.totalCount or 0)
   end
@@ -1112,6 +1183,29 @@ local function MigrateOldData()
     Print("Imported your previous SkinnerGold data.")
   end
   TimeIsMoneyDB.__migrated = true
+end
+
+-- One-time per-character split: sweep the OLD account-wide top-level ledger
+-- (days/totals/items/runs) into the CURRENT character, then drop the top-level copies.
+-- Runs at PLAYER_LOGIN (when the character name is known). User chose: assign to current main.
+local function MigrateToChars()
+  if TimeIsMoneyDB.didCharSplit then return end
+  local cd, moved = CD(), false
+  if type(TimeIsMoneyDB.days) == "table" then
+    for day, d in pairs(TimeIsMoneyDB.days) do cd.days[day] = d; moved = true end
+  end
+  if type(TimeIsMoneyDB.totals) == "table" then
+    for p, t in pairs(TimeIsMoneyDB.totals) do cd.totals[p] = t end
+  end
+  if type(TimeIsMoneyDB.items) == "table" then
+    for id, it in pairs(TimeIsMoneyDB.items) do cd.items[id] = it end
+  end
+  if type(TimeIsMoneyDB.runs) == "table" then
+    for _, r in ipairs(TimeIsMoneyDB.runs) do cd.runs[#cd.runs + 1] = r end
+  end
+  TimeIsMoneyDB.days, TimeIsMoneyDB.totals, TimeIsMoneyDB.items, TimeIsMoneyDB.runs = nil, nil, nil, nil
+  TimeIsMoneyDB.didCharSplit = true
+  if moved then Print("Existing gold data assigned to this character. Use /tim scope to switch to the account view.") end
 end
 
 ----------------------------------------------------------------------
@@ -1161,7 +1255,6 @@ f:SetScript("OnEvent", function(_, event, ...)
       TimeIsMoneyDB = TimeIsMoneyDB or {}
       MergeDefaults(TimeIsMoneyDB, DEFAULTS)
       settings = TimeIsMoneyDB.settings
-      MigrateOldData()
       -- One-time: adopt the 220 gear floor for DBs that predate the setting (saved as 0,
       -- which MergeDefaults can't overwrite). Runs once; after this the user can set 0.
       if not TimeIsMoneyDB.didGearFloorMigration then
@@ -1173,6 +1266,8 @@ f:SetScript("OnEvent", function(_, event, ...)
   elseif event == "PLAYER_LOGIN" then
     RefreshGathering()
     lastMoney = GetMoney()
+    MigrateOldData()    -- legacy GatherGold/SkinnerGold import (into current char)
+    MigrateToChars()    -- one-time: move old account-wide ledger into this character
     if SG.InitUI then SG.InitUI() end
     if SG.RefreshUI then SG.RefreshUI() end
 

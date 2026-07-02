@@ -2,6 +2,13 @@
 
 Last updated: 2026-07-02.
 
+## Recently shipped (verified in-game)
+- Fishing source + Run Journal (#16) + stacked chart + Sell-All-closes. (72e7be2)
+- **Per-character ledger** — data keyed by name-realm; "This character / Account" toggle
+  (`/tim scope`, button on Weekly tab); one-time migration assigns old shared data to the
+  current main; "Clear all data" is now per-character. Window slimmed 470->400, breakdown on
+  two centered lines.
+
 ## Committed & shipped (on `main`)
 - v0.12.0 money correctness; #14 sell workflow (Stages 1-3); ilvl gear gate; GPH freeze;
   Reset Instances; chat cleanup.

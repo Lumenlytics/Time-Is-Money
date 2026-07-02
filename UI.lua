@@ -5,10 +5,10 @@ local frame, tabs, content, activeTab, ticker
 -- Tab A (Run detail)
 local timerFS, gphFS, sessFS, coinFS, repairFS, netFS, durFS, breakdownFS, labelEdit, runBtn, pauseBtn, resetBtn
 -- Tab B (Weekly)
-local todayFS, weekFS, allFS, bars, chartLabel, bestRunFS
+local todayFS, weekFS, allFS, bars, chartLabel, bestRunFS, scopeBtn
 
 local TABS = { "Run", "Weekly", "Farm", "Sell" }
-local WIN_W, WIN_H = 470, 420   -- ALL tabs share one size (no jarring resize)
+local WIN_W, WIN_H = 400, 420   -- ALL tabs share one size (no jarring resize)
 
 StaticPopupDialogs["TIMEISMONEY_RESET"] = {
   text = "Time Is Money: clear all tracked data?",
@@ -265,7 +265,8 @@ function SG.InitUI()
   durFS    = StatRow(cA, "Durability",     -206)
 
   breakdownFS = cA:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  breakdownFS:SetPoint("TOPLEFT", 12, -232); breakdownFS:SetPoint("TOPRIGHT", -12, -232); breakdownFS:SetJustifyH("LEFT")
+  breakdownFS:SetPoint("TOPLEFT", 12, -226); breakdownFS:SetPoint("TOPRIGHT", -12, -226)
+  breakdownFS:SetJustifyH("CENTER"); breakdownFS:SetSpacing(3)
 
   -- Run controls grouped together along the bottom.
   runBtn = CreateFrame("Button", nil, cA, "UIPanelButtonTemplate")
@@ -285,23 +286,34 @@ function SG.InitUI()
   -- Tab B: weekly / lifetime + liquidated chart
   ------------------------------------------------------------------
   local cB = content[2]
+  scopeBtn = CreateFrame("Button", nil, cB, "UIPanelButtonTemplate")
+  scopeBtn:SetSize(120, 20); scopeBtn:SetPoint("TOPRIGHT", -6, -4)
+  scopeBtn:SetScript("OnClick", function() SG.ToggleScope() end)
+  scopeBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_TOP")
+    GameTooltip:AddLine("Switch view")
+    GameTooltip:AddLine("This character only, or all your characters combined.", 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+  end)
+  scopeBtn:SetScript("OnLeave", GameTooltip_Hide)
+
   local bHdr = cB:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  bHdr:SetPoint("TOPLEFT", 12, -6); bHdr:SetPoint("TOPRIGHT", -12, -6); bHdr:SetJustifyH("LEFT")
-  bHdr:SetText("|cff8fd694Gold banked|r - what actually hit your wallet (coin + vendor + AH sales)")
-  todayFS = StatRow(cB, "Today",       -28)
-  weekFS  = StatRow(cB, "Last 7 days", -50)
-  allFS   = StatRow(cB, "All-time",    -72)
+  bHdr:SetPoint("TOPLEFT", 12, -10); bHdr:SetPoint("TOPRIGHT", scopeBtn, "TOPLEFT", -8, 0); bHdr:SetJustifyH("LEFT")
+  bHdr:SetText("|cff8fd694Gold banked|r - coin + vendor + AH")
+  todayFS = StatRow(cB, "Today",       -34)
+  weekFS  = StatRow(cB, "Last 7 days", -56)
+  allFS   = StatRow(cB, "All-time",    -78)
 
   bestRunFS = cB:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-  bestRunFS:SetPoint("TOPLEFT", 12, -94); bestRunFS:SetPoint("TOPRIGHT", -12, -94); bestRunFS:SetJustifyH("LEFT")
+  bestRunFS:SetPoint("TOPLEFT", 12, -100); bestRunFS:SetPoint("TOPRIGHT", -12, -100); bestRunFS:SetJustifyH("LEFT")
 
   chartLabel = cB:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  chartLabel:SetPoint("TOPLEFT", 12, -116)
+  chartLabel:SetPoint("TOPLEFT", 12, -122)
   chartLabel:SetText("Banked per day (last 7):  |cffffd700coin|r  |cff9d9d9dvendor|r  |cff4d94ffAH|r")
 
-  local chartW, chartH = 436, 196
+  local chartW, chartH = 364, 188
   local chart = CreateFrame("Frame", nil, cB)
-  chart:SetSize(chartW, chartH); chart:SetPoint("TOPLEFT", 12, -134)
+  chart:SetSize(chartW, chartH); chart:SetPoint("TOPLEFT", 12, -140)
   bars = {}
   local n, gap = 7, 10
   local bw = (chartW - gap * (n - 1)) / n
@@ -387,14 +399,19 @@ function SG.RefreshUI()
     labelEdit:SetText(SG.session.label or GetFarmLabel())
   end
   if breakdownFS then
-    local parts = {}
-    for _, p in ipairs(SG.PROFS) do
-      parts[#parts + 1] = ("%s %dg"):format(SG.PROF_LABEL[p], math.floor(SG.SessionByProf(p) / 10000))
+    local function line(list)
+      local parts = {}
+      for _, p in ipairs(list) do
+        parts[#parts + 1] = ("%s %dg"):format(SG.PROF_LABEL[p], math.floor(SG.SessionByProf(p) / 10000))
+      end
+      return table.concat(parts, "   ")
     end
-    breakdownFS:SetText(table.concat(parts, "   "))
+    breakdownFS:SetText(line({ "skinning", "mining", "herbalism" }) .. "\n" ..
+                        line({ "tailoring", "fishing", "money", "drops" }))
   end
 
   -- Tab B (banked / liquidated only)
+  if scopeBtn then scopeBtn:SetText(SG.ScopeLabel and SG.ScopeLabel() or "This character") end
   if todayFS then todayFS:SetText(SG.Money(SG.LiquidatedDay(date("%Y-%m-%d")))) end
   if weekFS  then weekFS:SetText(SG.Money(SG.LiquidatedWeek())) end
   if allFS   then allFS:SetText(SG.Money(SG.LiquidatedAllTime())) end
@@ -411,11 +428,7 @@ function SG.RefreshUI()
     local days, maxV = {}, 1
     for i = 1, 7 do
       local t = time() - (7 - i) * 86400
-      local d = TimeIsMoneyDB.days[date("%Y-%m-%d", t)]
-      local coin = d and d.money  and d.money.value  or 0
-      local vend = d and d.sold   and d.sold.value   or 0
-      local ah   = d and d.ahSold and d.ahSold.value or 0
-      local tot  = coin + vend + ah
+      local coin, vend, ah, tot = SG.DayBuckets(date("%Y-%m-%d", t))
       days[i] = { coin = coin, vend = vend, ah = ah, tot = tot, t = t }
       if tot > maxV then maxV = tot end
     end
@@ -457,6 +470,8 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     SG.ToggleTicker()
   elseif cmd == "runs" or cmd == "journal" then
     SG.PrintRuns()
+  elseif cmd == "scope" then
+    SG.ToggleScope()
   elseif cmd == "labelprompt" then
     SG.ToggleRunLabelPrompt()
   elseif cmd == "autostart" then
