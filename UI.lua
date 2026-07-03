@@ -131,16 +131,17 @@ StaticPopupDialogs["TIMEISMONEY_LABELRUN"] = {
   end,
   OnCancel = function(self, data) if data then SG.SaveRun(data) end end,  -- "Skip" saves with the default label
   EditBoxOnEnterPressed = function(self, data)
+    data = data or (self:GetParent() and self:GetParent().data)
     if data then data.label = self:GetText(); SG.SaveRun(data) end
-    self:GetParent():Hide()
+    StaticPopup_Hide("TIMEISMONEY_LABELRUN")
   end,
-  EditBoxOnEscapePressed = function(self) self:GetParent():Hide() end,
+  EditBoxOnEscapePressed = function() StaticPopup_Hide("TIMEISMONEY_LABELRUN") end,
   timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
 }
 
 function SG.PromptRunLabel(rec)
-  local pre = rec.label
-  if (not pre or pre == "") and rec.zone then pre = TimeIsMoneyDB.zoneLabels[rec.zone] end
+  local pre = rec.label   -- what the user typed in the Run Label field, if anything
+  if not pre or pre == "" then pre = SG.SuggestRunLabel and SG.SuggestRunLabel(rec) end
   if not pre or pre == "" then pre = (rec.zone ~= "" and rec.zone) or "Run" end
   rec._prefill = pre
   StaticPopup_Show("TIMEISMONEY_LABELRUN", nil, nil, rec)
@@ -591,6 +592,10 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     SG.ToggleTicker()
   elseif cmd == "runs" or cmd == "journal" then
     SG.PrintRuns()
+  elseif cmd == "undorun" then
+    SG.UndoLastRun()
+  elseif cmd == "delrun" then
+    SG.DeleteRun(arg)
   elseif cmd == "scope" then
     SG.ToggleScope()
   elseif cmd == "theme" then

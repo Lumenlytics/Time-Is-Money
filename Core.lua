@@ -296,6 +296,48 @@ function SG.ToggleRunLabelPrompt()
   Print("Label-this-run popup on Stop = " .. (settings.runLabelPrompt and "|cff8fd694on|r" or "|cff808080off|r"))
 end
 
+-- Smart default name for a run: dungeons/raids get "<Name> run N" (N = your Nth run there);
+-- world runs get "<Zone> farm (<item>)" using the dominant gathered source this run.
+local SOURCE_ITEM = { skinning = "leather", mining = "ore", herbalism = "herbs", tailoring = "cloth", fishing = "fish", drops = "drops" }
+function SG.SuggestRunLabel(rec)
+  local zone = (rec.zone and rec.zone ~= "" and rec.zone) or "Run"
+  local it = rec.itype
+  if it == "party" or it == "raid" or it == "scenario" then
+    local n = 1
+    for _, r in ipairs(CD().runs) do if r.zone == rec.zone then n = n + 1 end end
+    return ("%s run %d"):format(zone, n)
+  end
+  -- world: append the dominant gathered item
+  local topProf, topVal
+  for _, p in ipairs(SG.PROFS) do
+    if SOURCE_ITEM[p] then
+      local v = SG.SessionByProf(p)
+      if v > 0 and (not topVal or v > topVal) then topVal, topProf = v, p end
+    end
+  end
+  if topProf then return ("%s farm (%s)"):format(zone, SOURCE_ITEM[topProf]) end
+  return ("%s farm"):format(zone)
+end
+
+-- Undo the most recent saved run on this character.
+function SG.UndoLastRun()
+  local runs = CD().runs
+  if #runs == 0 then Print("No runs to undo on this character."); return end
+  local r = table.remove(runs)
+  Print(("Removed last run: |cffffd200%s|r (net %s)."):format(r.label or "Run", Money(r.net or 0)))
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
+-- Delete a specific run by its number in /tim runs (1 = oldest shown).
+function SG.DeleteRun(idx)
+  idx = tonumber(idx)
+  local runs = CD().runs
+  if not idx or not runs[idx] then Print("Usage: /tim delrun <number from /tim runs>"); return end
+  local r = table.remove(runs, idx)
+  Print(("Deleted run #%d: |cffffd200%s|r."):format(idx, r.label or "Run"))
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
 -- View scope: "char" (this character) or "account" (all characters combined).
 function SG.ViewScope() return settings.viewScope == "account" and "account" or "char" end
 function SG.ScopeLabel() return SG.ViewScope() == "account" and "Account" or "This character" end
@@ -309,11 +351,11 @@ function SG.PrintRuns()
   local runs = CD().runs
   if #runs == 0 then Print("No runs logged yet on this character. Finish a run to add one."); return end
   local from = math.max(1, #runs - 9)
-  Print(("|cff8fd694Run journal|r (last %d of %d):"):format(#runs - from + 1, #runs))
+  Print(("|cff8fd694Run journal|r (last %d of %d) - /tim delrun <#> to delete, /tim undorun to undo:"):format(#runs - from + 1, #runs))
   for i = from, #runs do
     local r = runs[i]
-    PrintRaw(("  |cffffd200%s|r  %s  net %s  |cff808080(%s)|r"):format(
-      r.label or "Run", FmtDuration(r.dur or 0), Money(r.net or 0), r.zone ~= "" and r.zone or "?"))
+    PrintRaw(("  |cff808080#%d|r  |cffffd200%s|r  %s  net %s  |cff808080(%s)|r"):format(
+      i, r.label or "Run", FmtDuration(r.dur or 0), Money(r.net or 0), r.zone ~= "" and r.zone or "?"))
   end
 end
 
