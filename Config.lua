@@ -53,6 +53,24 @@ local function Checkbox(parent, x, y, label, get, set)
   refreshers[#refreshers + 1] = function() c:SetChecked(get()) end
 end
 
+local function Slider(parent, x, y, label, lo, hi, step, get, set)
+  local nm = "TIMCfgSlider" .. (label:gsub("%W", ""))
+  local s = CreateFrame("Slider", nm, parent, "OptionsSliderTemplate")
+  s:SetPoint("TOPLEFT", x, y); s:SetWidth(200)
+  s:SetMinMaxValues(lo, hi); s:SetValueStep(step); s:SetObeyStepOnDrag(true)
+  local low  = s.Low  or _G[nm .. "Low"]
+  local high = s.High or _G[nm .. "High"]
+  local text = s.Text or _G[nm .. "Text"]
+  if low  then low:SetText(("%.1f"):format(lo)) end
+  if high then high:SetText(("%.1f"):format(hi)) end
+  if text then text:SetText(label) end
+  local val = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  val:SetPoint("LEFT", s, "RIGHT", 12, 0)
+  s:SetScript("OnValueChanged", function(self, v) set(v); val:SetText(("%.2fx"):format(v)) end)
+  refreshers[#refreshers + 1] = function() s:SetValue(get()); val:SetText(("%.2fx"):format(get())) end
+  return s
+end
+
 function SG.RefreshConfig()
   for _, fn in ipairs(refreshers) do fn() end
 end
@@ -61,7 +79,7 @@ function SG.InitConfig()
   if cfg then return end
 
   cfg = CreateFrame("Frame", "TimeIsMoneyConfigFrame", UIParent, "BackdropTemplate")
-  cfg:SetSize(400, 414)
+  cfg:SetSize(400, 440)
   cfg:SetPoint("CENTER", 60, 0)
   cfg:SetMovable(true)
   cfg:EnableMouse(true)
@@ -80,11 +98,18 @@ function SG.InitConfig()
   cfg:Hide()
 
   local title = cfg:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-  title:SetPoint("TOP", 0, -10)
+  title:SetPoint("TOPLEFT", 14, -12)
   title:SetText("|cff8fd694Time Is Money|r  Options")
 
   local close = CreateFrame("Button", nil, cfg, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", 2, 2)
+
+  local themeBtn = CreateFrame("Button", nil, cfg, "UIPanelButtonTemplate")
+  themeBtn:SetSize(96, 20); themeBtn:SetPoint("TOPRIGHT", -30, -9)
+  themeBtn:SetScript("OnClick", function() SG.ToggleTheme() end)
+  refreshers[#refreshers + 1] = function()
+    themeBtn:SetText("Theme: " .. (S().theme == "light" and "Light" or "Dark"))
+  end
 
   -- Income sources
   Label(cfg, 16, -44, "Track income sources", "GameFontHighlight")
@@ -136,6 +161,11 @@ function SG.InitConfig()
     { text = "10g", value = 100000, w = 44 },
     { text = "25g", value = 250000, w = 44 },
   }, function() return S().minValue end, function(v) S().minValue = v end)
+
+  Label(cfg, 16, -338, "Floating timer size", "GameFontHighlight")
+  Slider(cfg, 24, -360, "smaller  -  larger", 0.6, 2.0, 0.05,
+    function() return S().tickerScale or 1.0 end,
+    function(v) SG.SetTickerScale(v) end)
 
   local note = cfg:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   note:SetPoint("BOTTOMLEFT", 16, 12)

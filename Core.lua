@@ -52,6 +52,9 @@ local DEFAULTS = {
   itemRules = {},  -- [itemID] = "ah" | "vendor" | "exclude" (account-wide - rules apply to all chars)
   zoneLabels = {}, -- zone -> last label used there (account-wide; pre-fills the stop-run popup)
   settings = {
+    theme     = "dark",         -- "dark" | "light" panel theme
+    uiScale   = 1.0,            -- main window scale (0.6 - 1.6)
+    tickerScale = 1.0,          -- floating timer widget scale (0.6 - 2.0)
     viewScope = "char",         -- "char" (this character only) | "account" (all characters) (#per-char)
     runLabelPrompt = true,      -- pop the "label this run" dialog on Stop Run (#16)
     window    = 2.0,            -- seconds: loot attributed to a gather after its cast

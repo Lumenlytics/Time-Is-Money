@@ -10,6 +10,105 @@ local todayFS, weekFS, allFS, bars, chartLabel, bestRunFS, scopeBtn
 local TABS = { "Run", "Weekly", "Farm", "Sell" }
 local WIN_W, WIN_H = 400, 420   -- ALL tabs share one size (no jarring resize)
 
+----------------------------------------------------------------------
+-- Theme (dark / light)
+----------------------------------------------------------------------
+local THEMES = {
+  dark = {
+    shadow = true, outline = true,
+    bg = { 0.06, 0.06, 0.07, 0.94 }, border = { 0.20, 0.50, 0.30 },
+    base = { 0.90, 0.90, 0.90 }, label = { 1.00, 0.82, 0.00 }, dim = { 0.55, 0.55, 0.55 }, accent = { 0.56, 0.84, 0.58 },
+    baseHex = "ffffff", accentHex = "8fd694", goldHex = "ffd200", dimHex = "808080", redHex = "ff7070",
+    tabOn = { 0.20, 0.50, 0.30, 0.85 }, tabOff = { 0.12, 0.12, 0.13, 0.90 }, tabOnText = { 1, 1, 1 }, tabOffText = { 0.7, 0.7, 0.7 },
+  },
+  light = {
+    shadow = false, outline = false,
+    bg = { 0.90, 0.88, 0.82, 0.98 }, border = { 0.42, 0.34, 0.18 },
+    base = { 0.13, 0.13, 0.13 }, label = { 0.42, 0.32, 0.05 }, dim = { 0.38, 0.38, 0.38 }, accent = { 0.10, 0.48, 0.24 },
+    baseHex = "1c1c1c", accentHex = "1a7a3c", goldHex = "8a5a00", dimHex = "555555", redHex = "a01818",
+    tabOn = { 0.50, 0.40, 0.22, 0.95 }, tabOff = { 0.80, 0.77, 0.70, 0.95 }, tabOnText = { 1, 1, 1 }, tabOffText = { 0.30, 0.30, 0.30 },
+  },
+}
+
+function SG.Theme()
+  local t = TimeIsMoneyDB and TimeIsMoneyDB.settings and TimeIsMoneyDB.settings.theme
+  return THEMES[t == "light" and "light" or "dark"]
+end
+
+-- Register a FontString for theming with a role: "base" | "label" | "dim" | "accent".
+local themedFS = {}
+local function TFS(fs, role) themedFS[#themedFS + 1] = { fs = fs, role = role or "base" }; return fs end
+
+local function ApplyTheme()
+  local T = SG.Theme()
+  local function bd(f)
+    if not f or not f.SetBackdropColor then return end
+    f:SetBackdropColor(T.bg[1], T.bg[2], T.bg[3], T.bg[4])
+    f:SetBackdropBorderColor(T.border[1], T.border[2], T.border[3], 1)
+  end
+  bd(frame); bd(ticker); bd(SG.sellFrame); bd(SG.configFrame)
+  -- Shadows: the default dark font shadow reads as fuzz on the light background, so drop it
+  -- in light mode; keep it in dark where it helps text pop.
+  local sa = T.shadow and 0.9 or 0
+  local sx, sy = (T.shadow and 1 or 0), (T.shadow and -1 or 0)
+  local function shade(fs) if fs then fs:SetShadowColor(0, 0, 0, sa); fs:SetShadowOffset(sx, sy) end end
+  for _, e in ipairs(themedFS) do
+    local c = T[e.role] or T.base
+    e.fs:SetTextColor(c[1], c[2], c[3])
+    shade(e.fs)
+  end
+  -- Big timers: a black OUTLINE around dark digits muddies them on light; drop it there.
+  if timerFS then timerFS:SetFont(STANDARD_TEXT_FONT, 40, T.outline and "OUTLINE" or "") end
+  if ticker and ticker.timer then
+    ticker.timer:SetFont(STANDARD_TEXT_FONT, 22, T.outline and "OUTLINE" or "")
+    shade(ticker.timer); shade(ticker.gold); shade(ticker.gph)
+  end
+  if tabs then
+    for j = 1, #tabs do
+      local on = (j == activeTab)
+      tabs[j].bg:SetColorTexture(unpack(on and T.tabOn or T.tabOff))
+      local tc = on and T.tabOnText or T.tabOffText
+      tabs[j].fs:SetTextColor(tc[1], tc[2], tc[3])
+    end
+  end
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+SG.ApplyTheme = ApplyTheme
+
+function SG.ToggleTheme()
+  local s = TimeIsMoneyDB.settings
+  s.theme = (s.theme == "light") and "dark" or "light"
+  ApplyTheme()
+  if SG.RefreshConfig then SG.RefreshConfig() end
+  SG.Print("Theme = |cff8fd694" .. s.theme .. "|r")
+end
+
+-- Scale: the main panel and the floating widget size independently.
+local function ApplyScale()
+  local s = TimeIsMoneyDB and TimeIsMoneyDB.settings
+  if frame  then frame:SetScale((s and s.uiScale) or 1.0) end
+  if ticker then ticker:SetScale((s and s.tickerScale) or 1.0) end
+end
+SG.ApplyScale = ApplyScale
+
+function SG.SetUIScale(arg)
+  local n = tonumber(arg)
+  if not n then
+    SG.Print(("Window scale is %.2f. Set with /tim scale 0.6 - 1.6."):format(TimeIsMoneyDB.settings.uiScale or 1.0))
+    return
+  end
+  TimeIsMoneyDB.settings.uiScale = math.max(0.6, math.min(1.6, n))
+  ApplyScale()
+  SG.Print(("Window scale = |cff8fd694%.2f|r"):format(TimeIsMoneyDB.settings.uiScale))
+end
+
+-- Floating-widget scale (also driven by the Options slider).
+function SG.SetTickerScale(n)
+  n = tonumber(n); if not n then return end
+  TimeIsMoneyDB.settings.tickerScale = math.max(0.6, math.min(2.0, n))
+  ApplyScale()
+end
+
 StaticPopupDialogs["TIMEISMONEY_RESET"] = {
   text = "Time Is Money: clear all tracked data?",
   button1 = YES, button2 = NO,
@@ -53,10 +152,10 @@ end
 local function StatRow(parent, label, y)
   local l = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   l:SetPoint("TOPLEFT", 12, y)
-  l:SetText(label)
+  l:SetText(label); TFS(l, "label")
   local v = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   v:SetPoint("TOPRIGHT", -12, y)
-  v:SetJustifyH("RIGHT")
+  v:SetJustifyH("RIGHT"); TFS(v, "base")
   return v
 end
 
@@ -85,7 +184,7 @@ local function Short(c) return (SG.MoneyShort or SG.Money)(c) end
 
 local function GPHText()
   local txt = Short(SG.SessionGPH()) .. "/hr"
-  if not SG.RunActive() then txt = "|cff808080" .. txt .. "|r" end
+  if not SG.RunActive() then txt = "|cff" .. SG.Theme().dimHex .. txt .. "|r" end
   return txt
 end
 
@@ -100,8 +199,12 @@ end
 
 local function RefreshTicker()
   if not ticker then return end
+  local T = SG.Theme()
+  ticker.timer:SetTextColor(T.base[1], T.base[2], T.base[3])
+  ticker.gold:SetTextColor(T.base[1], T.base[2], T.base[3])
+  ticker.gph:SetTextColor(T.dim[1], T.dim[2], T.dim[3])
   ticker.timer:SetText(FmtClock(SG.RunElapsed()))
-  ticker.gold:SetText(("This run: |cff8fd694%s|r"):format(Short(SG.SessionValue())))
+  ticker.gold:SetText(("This run: |cff" .. T.accentHex .. "%s|r"):format(Short(SG.SessionValue())))
   ticker.gph:SetText(GPHText())
   ticker.runBtn:SetText(SG.RunActive() and "Stop" or "Start")
   ticker.pauseBtn:SetText(SG.RunPaused() and "Resume" or "Pause")
@@ -121,13 +224,26 @@ local function BuildTicker()
   ticker:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); SaveTickerPos() end)
   ticker:SetClampedToScreen(true)
   ticker:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
-  ticker:SetBackdropColor(0.06, 0.06, 0.07, 0.92)
-  ticker:SetBackdropBorderColor(0.20, 0.50, 0.30, 1)
+  local T = SG.Theme()
+  ticker:SetBackdropColor(T.bg[1], T.bg[2], T.bg[3], T.bg[4])
+  ticker:SetBackdropBorderColor(T.border[1], T.border[2], T.border[3], 1)
+
+  ticker.close = CreateFrame("Button", nil, ticker)
+  ticker.close:SetSize(16, 16); ticker.close:SetPoint("TOPRIGHT", -3, -3)
+  ticker.close.x = TFS(ticker.close:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "dim")
+  ticker.close.x:SetPoint("CENTER"); ticker.close.x:SetText("x")
+  do local T = SG.Theme(); ticker.close.x:SetTextColor(T.dim[1], T.dim[2], T.dim[3]) end
+  ticker.close:SetScript("OnClick", function() SG.ToggleTicker() end)  -- hides + remembers closed
+  ticker.close:SetScript("OnEnter", function(self) self.x:SetTextColor(1, 0.35, 0.35) end)  -- red on hover
+  ticker.close:SetScript("OnLeave", function(self)
+    local T = SG.Theme(); self.x:SetTextColor(T.dim[1], T.dim[2], T.dim[3])
+  end)
 
   ticker.timer = ticker:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  ticker.timer:SetPoint("TOP", 0, -6); ticker.timer:SetFont(STANDARD_TEXT_FONT, 22, "OUTLINE")
+  ticker.timer:SetPoint("TOP", -6, -6); ticker.timer:SetFont(STANDARD_TEXT_FONT, 22, "OUTLINE")
   ticker.gold = ticker:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
   ticker.gold:SetPoint("TOP", ticker.timer, "BOTTOM", 0, -4)
+  ticker.gold:SetFont(STANDARD_TEXT_FONT, 15)
   ticker.gph = ticker:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   ticker.gph:SetPoint("TOP", ticker.gold, "BOTTOM", 0, -2)
 
@@ -143,6 +259,8 @@ local function BuildTicker()
     if self._t > 0.4 then self._t = 0; RefreshTicker() end
   end)
   ticker:Hide()
+  ApplyTheme()   -- theme the freshly-built widget (font outline/shadow/colors)
+  ApplyScale()
 end
 
 function SG.ToggleTicker()
@@ -156,13 +274,13 @@ end
 ----------------------------------------------------------------------
 local function SelectTab(i)
   activeTab = i
+  local T = SG.Theme()
   for j = 1, #TABS do
     content[j]:SetShown(j == i)
-    if j == i then
-      tabs[j].bg:SetColorTexture(0.20, 0.50, 0.30, 0.85); tabs[j].fs:SetTextColor(1, 1, 1)
-    else
-      tabs[j].bg:SetColorTexture(0.12, 0.12, 0.13, 0.90); tabs[j].fs:SetTextColor(0.7, 0.7, 0.7)
-    end
+    local on = (j == i)
+    tabs[j].bg:SetColorTexture(unpack(on and T.tabOn or T.tabOff))
+    local tc = on and T.tabOnText or T.tabOffText
+    tabs[j].fs:SetTextColor(tc[1], tc[2], tc[3])
   end
   SG.RefreshUI()
 end
@@ -181,13 +299,12 @@ function SG.InitUI()
   frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
   frame:SetClampedToScreen(true)
   frame:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
-  frame:SetBackdropColor(0.06, 0.06, 0.07, 0.94)
-  frame:SetBackdropBorderColor(0.20, 0.50, 0.30, 1)
   frame:Hide()
 
   local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
   title:SetPoint("TOPLEFT", 10, -8)
-  title:SetText("|cff8fd694Time Is Money|r")
+  title:SetText("Time Is Money")
+  TFS(title, "accent")
 
   local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", 2, 2)
@@ -255,7 +372,7 @@ function SG.InitUI()
   timerFS = cA:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
   timerFS:SetPoint("TOP", 0, -38)
   timerFS:SetFont(STANDARD_TEXT_FONT, 40, "OUTLINE")
-  timerFS:SetText("0:00")
+  timerFS:SetText("0:00"); TFS(timerFS, "base")
 
   gphFS    = StatRow(cA, "Gold / hour",    -96)
   sessFS   = StatRow(cA, "This run (est)", -118)
@@ -266,7 +383,7 @@ function SG.InitUI()
 
   breakdownFS = cA:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   breakdownFS:SetPoint("TOPLEFT", 12, -226); breakdownFS:SetPoint("TOPRIGHT", -12, -226)
-  breakdownFS:SetJustifyH("CENTER"); breakdownFS:SetSpacing(3)
+  breakdownFS:SetJustifyH("CENTER"); breakdownFS:SetSpacing(3); TFS(breakdownFS, "dim")
 
   -- Run controls grouped together along the bottom.
   runBtn = CreateFrame("Button", nil, cA, "UIPanelButtonTemplate")
@@ -299,7 +416,7 @@ function SG.InitUI()
 
   local bHdr = cB:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   bHdr:SetPoint("TOPLEFT", 12, -10); bHdr:SetPoint("TOPRIGHT", scopeBtn, "TOPLEFT", -8, 0); bHdr:SetJustifyH("LEFT")
-  bHdr:SetText("|cff8fd694Gold banked|r - coin + vendor + AH")
+  bHdr:SetText("Gold banked - coin + vendor + AH"); TFS(bHdr, "accent")
   todayFS = StatRow(cB, "Today",       -34)
   weekFS  = StatRow(cB, "Last 7 days", -56)
   allFS   = StatRow(cB, "All-time",    -78)
@@ -307,7 +424,7 @@ function SG.InitUI()
   bestRunFS = cB:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
   bestRunFS:SetPoint("TOPLEFT", 12, -100); bestRunFS:SetPoint("TOPRIGHT", -12, -100); bestRunFS:SetJustifyH("LEFT")
 
-  chartLabel = cB:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  chartLabel = TFS(cB:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
   chartLabel:SetPoint("TOPLEFT", 12, -122)
   chartLabel:SetText("Banked per day (last 7):  |cffffd700coin|r  |cff9d9d9dvendor|r  |cff4d94ffAH|r")
 
@@ -326,9 +443,9 @@ function SG.InitUI()
     vend:SetWidth(bw); vend:SetPoint("BOTTOMLEFT", coin, "TOPLEFT", 0, 0)
     local ah = chart:CreateTexture(nil, "ARTWORK"); ah:SetColorTexture(0.30, 0.58, 1.0, 0.95)
     ah:SetWidth(bw); ah:SetPoint("BOTTOMLEFT", vend, "TOPLEFT", 0, 0)
-    local lbl = chart:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local lbl = TFS(chart:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
     lbl:SetPoint("TOP", coin, "BOTTOM", 0, -2)
-    local val = chart:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+    local val = TFS(chart:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
     val:SetPoint("BOTTOM", ah, "TOP", 0, 1)
     bars[i] = { coin = coin, vend = vend, ah = ah, lbl = lbl, val = val }
   end
@@ -336,11 +453,11 @@ function SG.InitUI()
   ------------------------------------------------------------------
   -- Tab C / D: stubs (built in later phases)
   ------------------------------------------------------------------
-  local cCtext = content[3]:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+  local cCtext = TFS(content[3]:CreateFontString(nil, "OVERLAY", "GameFontDisable"), "dim")
   cCtext:SetPoint("TOPLEFT", 12, -12); cCtext:SetPoint("TOPRIGHT", -12, -12); cCtext:SetJustifyH("LEFT")
   cCtext:SetText("Farm intel - coming soon:\n\n- AH Hot Commodity (what's selling, supply-depth based)\n- Previous Farm Locations (filterable, from the Run Journal)\n- Professions (current character) vs what's selling\n- Reset All Data")
 
-  local cDtext = content[4]:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+  local cDtext = TFS(content[4]:CreateFontString(nil, "OVERLAY", "GameFontDisable"), "dim")
   cDtext:SetPoint("TOPLEFT", 12, -12); cDtext:SetPoint("TOPRIGHT", -12, -12); cDtext:SetJustifyH("LEFT")
   cDtext:SetText("Sell review - opens automatically at a merchant (or /tim sell).\n\nA later phase mirrors that window here as a tab.")
   local cDbtn = CreateFrame("Button", nil, content[4], "UIPanelButtonTemplate")
@@ -366,10 +483,13 @@ function SG.InitUI()
   end
 
   SelectTab(1)
+  ApplyTheme()
+  ApplyScale()
 end
 
 function SG.RefreshUI()
   if not frame then return end
+  local T = SG.Theme()
 
   -- Tab A
   if gphFS   then gphFS:SetText(GPHText()) end
@@ -377,14 +497,14 @@ function SG.RefreshUI()
   if coinFS  then coinFS:SetText(Short(SG.SessionByProf("money"))) end
   if repairFS then
     local r = SG.SessionRepairs()
-    repairFS:SetText(r > 0 and ("|cffff7070-" .. Short(r) .. "|r") or Short(0))
+    repairFS:SetText(r > 0 and ("|cff" .. T.redHex .. "-" .. Short(r) .. "|r") or Short(0))
   end
-  if netFS   then netFS:SetText("|cff8fd694" .. Short(SG.SessionNet()) .. "|r") end
+  if netFS   then netFS:SetText("|cff" .. T.accentHex .. Short(SG.SessionNet()) .. "|r") end
   if durFS then
     local d = SG.DurabilityPct and SG.DurabilityPct()
-    if not d then durFS:SetText("|cff808080-|r")
+    if not d then durFS:SetText("|cff" .. T.dimHex .. "-|r")
     else
-      local c = (d < 30) and "|cffff4040" or (d < 60) and "|cffffd200" or "|cff8fd694"
+      local c = (d < 30) and ("|cff" .. T.redHex) or (d < 60) and "|cffd0a000" or ("|cff" .. T.accentHex)
       durFS:SetText(("%s%d%%|r"):format(c, math.floor(d + 0.5)))
     end
   end
@@ -416,12 +536,13 @@ function SG.RefreshUI()
   if weekFS  then weekFS:SetText(SG.Money(SG.LiquidatedWeek())) end
   if allFS   then allFS:SetText(SG.Money(SG.LiquidatedAllTime())) end
   if bestRunFS then
+    bestRunFS:SetTextColor(T.base[1], T.base[2], T.base[3])
     local best = SG.BestRunSince and SG.BestRunSince(time() - 7 * 86400)
     if best then
-      bestRunFS:SetText(("|cffffd200Best run this week:|r %s - %s net"):format(
+      bestRunFS:SetText(("|cff" .. T.goldHex .. "Best run this week:|r %s - %s net"):format(
         best.label or "Run", SG.Money(best.net or 0)))
     else
-      bestRunFS:SetText("|cff808080No runs logged this week yet.|r")
+      bestRunFS:SetText("|cff" .. T.dimHex .. "No runs logged this week yet.|r")
     end
   end
   if bars then
@@ -472,6 +593,10 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     SG.PrintRuns()
   elseif cmd == "scope" then
     SG.ToggleScope()
+  elseif cmd == "theme" then
+    SG.ToggleTheme()
+  elseif cmd == "scale" then
+    SG.SetUIScale(arg)
   elseif cmd == "labelprompt" then
     SG.ToggleRunLabelPrompt()
   elseif cmd == "autostart" then
