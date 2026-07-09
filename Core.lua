@@ -276,6 +276,7 @@ function SG.SaveRun(rec)
   runs[#runs + 1] = rec
   while #runs > 100 do table.remove(runs, 1) end
   if rec.zone and rec.zone ~= "" then TimeIsMoneyDB.zoneLabels[rec.zone] = rec.label end
+  Print(("Run saved: |cffffd200%s|r (net %s). See the Grounds tab or /tim runs."):format(rec.label, Money(rec.net or 0)))
   if SG.RefreshUI then SG.RefreshUI() end
 end
 
@@ -318,6 +319,9 @@ function SG.SuggestRunLabel(rec)
   if topProf then return ("%s farm (%s)"):format(zone, SOURCE_ITEM[topProf]) end
   return ("%s farm"):format(zone)
 end
+
+-- The current character's run list (for the Tab C run manager).
+function SG.GetRuns() return CD().runs end
 
 -- Undo the most recent saved run on this character.
 function SG.UndoLastRun()
@@ -607,25 +611,31 @@ SG.ItemDisposition = ItemDisposition
 --   vendor = { {bag, slot, link, count, reason, value}, ... }  (the would-vendor pile)
 --   auction, keep, unjudgedBoE = counts;  totalVendor = copper
 function SG.ScanSellables()
-  local r = { vendor = {}, auction = 0, keep = 0, unjudgedBoE = 0, totalVendor = 0 }
+  local r = { vendor = {}, ah = {}, auction = 0, keep = 0, unjudgedBoE = 0, totalVendor = 0, totalAH = 0 }
   if not (C_Container and C_Container.GetContainerNumSlots) then return r end
   for bag = 0, 5 do
     local slots = C_Container.GetContainerNumSlots(bag) or 0
     for slot = 1, slots do
       local link = C_Container.GetContainerItemLink(bag, slot)
       if link then
+        local itemID = tonumber(link:match("|Hitem:(%d+):"))
         local disp, reason = ItemDisposition(link)
+        local info  = C_Container.GetContainerItemInfo(bag, slot)
+        local count = (info and info.stackCount) or 1
+        local _, _, quality, _, _, _, _, _, _, _, vend, classID = C_Item.GetItemInfo(link)
         if disp == "vendor" then
-          local info  = C_Container.GetContainerItemInfo(bag, slot)
-          local count = (info and info.stackCount) or 1
-          local each  = select(11, C_Item.GetItemInfo(link)) or 0
-          r.totalVendor = r.totalVendor + each * count
-          r.vendor[#r.vendor + 1] = { bag = bag, slot = slot, link = link, count = count, reason = reason, value = each * count }
-        elseif disp == "auction" then
-          r.auction = r.auction + 1
+          r.totalVendor = r.totalVendor + (vend or 0) * count
+          r.vendor[#r.vendor + 1] = { bag = bag, slot = slot, link = link, count = count, reason = reason, value = (vend or 0) * count }
         else
-          r.keep = r.keep + 1
-          if reason:find("^BoE") then r.unjudgedBoE = r.unjudgedBoE + 1 end
+          -- The "Gains" AH row: auctionable BoEs, or gathered trade-good mats (classID 7).
+          local isMat = (classID == 7 and (quality or 0) > 0)
+          if disp == "auction" or isMat then
+            local ahEach = (AHValue(link, itemID)) or 0
+            r.totalAH = r.totalAH + ahEach * count
+            r.ah[#r.ah + 1] = { bag = bag, slot = slot, link = link, count = count, value = ahEach * count }
+          end
+          if disp == "auction" then r.auction = r.auction + 1
+          else r.keep = r.keep + 1; if reason:find("^BoE") then r.unjudgedBoE = r.unjudgedBoE + 1 end end
         end
       end
     end
@@ -875,13 +885,22 @@ end
 local PAT_MULTI  = "^" .. LOOT_ITEM_SELF_MULTIPLE:gsub("%%s", "(.+)"):gsub("%%d", "(%%d+)") .. "$"
 local PAT_SINGLE = "^" .. LOOT_ITEM_SELF:gsub("%%s", "(.+)") .. "$"
 
--- Tailoring has no gather cast - tailors simply loot cloth from (mostly humanoid)
--- kills. So we identify cloth by item class (Trade Goods > Cloth) and credit it to
--- tailoring whenever no gather cast is currently active.
-local function IsCloth(itemID)
-  if not itemID then return false end
+-- Trade Goods (classID 7) subclass -> the profession that farms it. Used as a fallback when
+-- no gather cast is active: either the mat has no cast (cloth), or the cast's short attribution
+-- window elapsed before the loot landed (common with skinning - you skin, loot arrives late).
+-- Without this, gathered mats fall through to the generic "drops" bucket and mislabel the run.
+local MAT_SUBCLASS_PROF = {
+  [5]  = "tailoring",   -- Cloth
+  [6]  = "skinning",    -- Leather
+  [7]  = "mining",      -- Metal & Stone
+  [9]  = "herbalism",   -- Herb
+  [10] = "mining",      -- Elemental (ore-adjacent)
+}
+local function MatProf(itemID)
+  if not itemID then return nil end
   local _, _, _, _, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
-  return classID == 7 and subClassID == 5   -- Trade Goods > Cloth
+  if classID ~= 7 then return nil end
+  return MAT_SUBCLASS_PROF[subClassID]
 end
 
 -- Incidental run loot (greys, BoEs, BoP gear, mob drops). Only quest items are
@@ -902,15 +921,17 @@ local function OnLoot(msg)
 
   local itemID = tonumber(link:match("|Hitem:(%d+):"))
   local prof
+  local matProf = MatProf(itemID)   -- profession this mat belongs to (leather->skinning, etc.)
   -- Fishing loot arrives seconds after the cast (you cast, wait for a bite, then loot),
   -- so it needs a much longer attribution window than instant gathers.
   local window = (lastGatherProf == "fishing") and 30 or (settings.window or 2.0)
   if lastGatherProf and (GetTime() - lastGatherAt) <= window then
     -- A gather (skinning/mining/herbalism/fishing) just happened; this loot belongs to it.
     prof = lastGatherProf
-  elseif settings.profs and settings.profs.tailoring and IsCloth(itemID) then
-    -- No active gather: cloth picked up off a kill counts as tailoring farming.
-    prof = "tailoring"
+  elseif matProf and settings.profs and settings.profs[matProf] then
+    -- No active gather (or its window elapsed): credit the mat to its profession by item type.
+    -- Covers cloth (no cast) and gathered mats whose loot arrived after the cast window.
+    prof = matProf
   elseif settings.countDrops and IsCountableDrop(link, itemID) then
     -- Incidental loot (greys, BoEs, etc.) -> the "drops" source. Always counts toward
     -- the lifetime ledger (Today/All-time); the run only captures it while active, via

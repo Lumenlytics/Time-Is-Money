@@ -6,8 +6,16 @@ local frame, tabs, content, activeTab, ticker
 local timerFS, gphFS, sessFS, coinFS, repairFS, netFS, durFS, breakdownFS, labelEdit, runBtn, pauseBtn, resetBtn
 -- Tab B (Weekly)
 local todayFS, weekFS, allFS, bars, chartLabel, bestRunFS, scopeBtn
+-- Tab C (Run journal)
+local journalScroll, journalRows
+local JROW_H, JMAX = 24, 12
+-- Tab D (Gains): two goods sections — vendor pile + AH goods
+local gV, gA
+local GAINS_ROWS, GAINS_RH = 6, 22
 
-local TABS = { "Run", "Weekly", "Farm", "Sell" }
+-- Tab labels: Grind (current run) · Gold (earnings history) · Grounds (farm
+-- locations/journal) · Gains (what this run gave you + where it goes: vendor / AH).
+local TABS = { "Grind", "Gold", "Grounds", "Gains" }
 local WIN_W, WIN_H = 400, 420   -- ALL tabs share one size (no jarring resize)
 
 ----------------------------------------------------------------------
@@ -109,6 +117,89 @@ function SG.SetTickerScale(n)
   ApplyScale()
 end
 
+-- Tab C run-journal list (newest first, per current character).
+local function RefreshJournal()
+  if not journalRows then return end
+  local runs = (SG.GetRuns and SG.GetRuns()) or {}
+  local total = #runs
+  FauxScrollFrame_Update(journalScroll, total, JMAX, JROW_H)
+  local offset = FauxScrollFrame_GetOffset(journalScroll)
+  local T = SG.Theme()
+  for i = 1, JMAX do
+    local row = journalRows[i]
+    local absIdx = total - (i + offset - 1)   -- newest first
+    local r = runs[absIdx]
+    if r and absIdx >= 1 then
+      row.absIdx = absIdx
+      row.text:SetText(("|cff%s%s|r   net %s   |cff808080%s · %s|r"):format(
+        T.goldHex, r.label or "Run", SG.Money(r.net or 0),
+        (SG.FmtDuration and SG.FmtDuration(r.dur or 0)) or "", (r.zone ~= "" and r.zone) or "?"))
+      row:Show()
+    else
+      row.absIdx = nil; row:Hide()
+    end
+  end
+end
+
+-- Tab D (Gains): build one goods section — a header + GAINS_ROWS static item rows.
+local function BuildGoodsSection(parent, y)
+  local sec = { rows = {} }
+  sec.hdr = TFS(parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight"), "accent")
+  sec.hdr:SetPoint("TOPLEFT", 12, y)
+  for i = 1, GAINS_ROWS do
+    local row = CreateFrame("Frame", nil, parent)
+    row:SetSize(360, GAINS_RH)
+    row:SetPoint("TOPLEFT", 14, y - 18 - (i - 1) * GAINS_RH)
+    row.icon = row:CreateTexture(nil, "ARTWORK")
+    row.icon:SetSize(16, 16); row.icon:SetPoint("LEFT", 0, 0)
+    row.text = TFS(row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), "base")
+    row.text:SetPoint("LEFT", row.icon, "RIGHT", 5, 0); row.text:SetPoint("RIGHT", -74, 0)
+    row.text:SetJustifyH("LEFT"); row.text:SetWordWrap(false)
+    row.val = TFS(row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
+    row.val:SetPoint("RIGHT", -8, 0)
+    sec.rows[i] = row
+  end
+  sec.empty = TFS(parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
+  sec.empty:SetPoint("TOPLEFT", 16, y - 20)
+  return sec
+end
+
+-- Fill one Gains section from a scanned goods list (newest-first not needed; bag order).
+-- Shows up to GAINS_ROWS items; if there are more, the last row collapses to "… and N more".
+local function FillGoods(sec, list, total, label, emptyMsg)
+  if not sec then return end
+  local T = SG.Theme()
+  sec.hdr:SetText(("%s  |cff%s%s|r"):format(label, T.goldHex, SG.Money(total or 0)))
+  local n = #list
+  for i = 1, GAINS_ROWS do
+    local row = sec.rows[i]
+    if i == GAINS_ROWS and n > GAINS_ROWS then
+      row.icon:SetTexture(nil)
+      row.text:SetText(("|cff808080… and %d more|r"):format(n - (GAINS_ROWS - 1)))
+      row.val:SetText(""); row:Show()
+    else
+      local e = list[i]
+      if e then
+        row.icon:SetTexture(select(10, C_Item.GetItemInfo(e.link)) or 134400)
+        row.text:SetText(("%s|cff808080  x%d|r"):format(e.link, e.count or 1))
+        row.val:SetText(SG.Money(e.value or 0)); row:Show()
+      else
+        row:Hide()
+      end
+    end
+  end
+  sec.empty:SetText(emptyMsg or ""); sec.empty:SetShown(n == 0)
+end
+
+-- Rescan bags and refill both Gains sections (vendor pile + AH goods).
+local function RefreshGains()
+  if not gV then return end
+  local r = SG.ScanSellables and SG.ScanSellables()
+  if not r then return end
+  FillGoods(gV, r.vendor, r.totalVendor, "To vendor",     "Nothing to vendor right now.")
+  FillGoods(gA, r.ah,     r.totalAH,     "To sell on AH",  "Nothing to list right now.")
+end
+
 StaticPopupDialogs["TIMEISMONEY_RESET"] = {
   text = "Time Is Money: clear all tracked data?",
   button1 = YES, button2 = NO,
@@ -116,35 +207,74 @@ StaticPopupDialogs["TIMEISMONEY_RESET"] = {
   timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
 }
 
--- Run Journal (#16): label-this-run prompt on Stop Run.
-StaticPopupDialogs["TIMEISMONEY_LABELRUN"] = {
-  text = "Name this run (for your farm journal):",
-  button1 = SAVE or "Save",
-  button2 = "Skip",
-  hasEditBox = true, editBoxWidth = 260,
-  OnShow = function(self, data)
-    self.editBox:SetText((data and data._prefill) or "")
-    self.editBox:HighlightText(); self.editBox:SetFocus()
-  end,
-  OnAccept = function(self, data)
-    if data then data.label = self.editBox:GetText(); SG.SaveRun(data) end
-  end,
-  OnCancel = function(self, data) if data then SG.SaveRun(data) end end,  -- "Skip" saves with the default label
-  EditBoxOnEnterPressed = function(self, data)
-    data = data or (self:GetParent() and self:GetParent().data)
-    if data then data.label = self:GetText(); SG.SaveRun(data) end
-    StaticPopup_Hide("TIMEISMONEY_LABELRUN")
-  end,
-  EditBoxOnEscapePressed = function() StaticPopup_Hide("TIMEISMONEY_LABELRUN") end,
-  timeout = 0, whileDead = true, hideOnEscape = true, preferredIndex = 3,
-}
+-- Run Journal (#16): a fully custom "name this run" dialog (StaticPopup's editbox/data
+-- callbacks are unreliable across retail versions, so we own the whole thing).
+local labelDlg
+local function BuildLabelDialog()
+  if labelDlg then return end
+  local d = CreateFrame("Frame", "TimeIsMoneyLabelDialog", UIParent, "BackdropTemplate")
+  d:SetSize(330, 128); d:SetPoint("CENTER"); d:SetFrameStrata("DIALOG"); d:SetToplevel(true)
+  d:EnableMouse(true); d:SetMovable(true); d:RegisterForDrag("LeftButton")
+  d:SetScript("OnDragStart", d.StartMoving); d:SetScript("OnDragStop", d.StopMovingOrSizing)
+  d:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+  local T = SG.Theme()
+  d:SetBackdropColor(T.bg[1], T.bg[2], T.bg[3], 0.98)
+  d:SetBackdropBorderColor(T.border[1], T.border[2], T.border[3], 1)
+
+  d.title = TFS(d:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "accent")
+  d.title:SetPoint("TOP", 0, -14); d.title:SetText("Name this run")
+
+  d.edit = CreateFrame("EditBox", nil, d, "BackdropTemplate")
+  d.edit:SetSize(292, 26); d.edit:SetPoint("TOP", 0, -42)
+  d.edit:SetAutoFocus(false)
+  d.edit:SetFontObject(ChatFontNormal)
+  d.edit:SetTextColor(1, 1, 1)
+  d.edit:SetTextInsets(6, 6, 0, 0)
+  d.edit:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+  d.edit:SetBackdropColor(0, 0, 0, 0.6)
+  d.edit:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+
+  local function commit()
+    if d.rec then d.rec.label = d.edit:GetText(); SG.SaveRun(d.rec) end
+    d.rec = nil; d:Hide()
+  end
+  local function skip()
+    if d.rec then SG.SaveRun(d.rec) end   -- log the run with its default label
+    d.rec = nil; d:Hide()
+  end
+  d.commit, d.skip = commit, skip
+
+  d.edit:SetScript("OnEnterPressed", commit)
+  d.edit:SetScript("OnEscapePressed", skip)
+  -- Select-all only once the user deliberately clicks in, so a single keystroke replaces the
+  -- suggestion. We never auto-focus (see PromptRunLabel) - that would eat movement keys.
+  d.edit:SetScript("OnEditFocusGained", function(self) self:HighlightText() end)
+
+  d.hint = TFS(d:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
+  d.hint:SetPoint("TOP", 0, -72); d.hint:SetText("Click the box to rename · Save keeps it")
+
+  local save = CreateFrame("Button", nil, d, "UIPanelButtonTemplate")
+  save:SetSize(94, 22); save:SetPoint("BOTTOMRIGHT", -14, 12); save:SetText("Save"); save:SetScript("OnClick", commit)
+  local skipB = CreateFrame("Button", nil, d, "UIPanelButtonTemplate")
+  skipB:SetSize(94, 22); skipB:SetPoint("BOTTOMLEFT", 14, 12); skipB:SetText("Skip"); skipB:SetScript("OnClick", skip)
+
+  d:Hide()
+  labelDlg = d
+end
 
 function SG.PromptRunLabel(rec)
+  BuildLabelDialog()
   local pre = rec.label   -- what the user typed in the Run Label field, if anything
   if not pre or pre == "" then pre = SG.SuggestRunLabel and SG.SuggestRunLabel(rec) end
   if not pre or pre == "" then pre = (rec.zone ~= "" and rec.zone) or "Run" end
-  rec._prefill = pre
-  StaticPopup_Show("TIMEISMONEY_LABELRUN", nil, nil, rec)
+  labelDlg.rec = rec
+  labelDlg:Show()
+  labelDlg.edit:SetText(pre)
+  labelDlg.edit:SetCursorPosition(#pre)
+  -- Deliberately NO SetFocus/HighlightText here: if the run ends mid-move, an auto-focused box
+  -- swallows the held movement key ("wwww…"). The suggestion shows unfocused; Save accepts it
+  -- as-is, or the user clicks in to rename (which then selects-all via OnEditFocusGained).
+  labelDlg.edit:ClearFocus()
 end
 
 ----------------------------------------------------------------------
@@ -313,10 +443,11 @@ function SG.InitUI()
   tabs = {}
   for i = 1, #TABS do
     local t = CreateFrame("Button", nil, frame)
-    t:SetSize(72, 22)
-    t:SetPoint("TOPLEFT", 8 + (i - 1) * 74, -28)
+    t:SetSize(80, 24)
+    t:SetPoint("TOPLEFT", 8 + (i - 1) * 82, -27)
     local bg = t:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(0.12, 0.12, 0.13, 0.90)
-    local fs = t:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall"); fs:SetAllPoints(); fs:SetText(TABS[i])
+    local fs = t:CreateFontString(nil, "OVERLAY", "GameFontNormal"); fs:SetAllPoints(); fs:SetText(TABS[i])
+    fs:SetFont(STANDARD_TEXT_FONT, 14, "OUTLINE")   -- bold + larger so the tab labels read clearly
     t.bg, t.fs = bg, fs
     t:SetScript("OnClick", function() SelectTab(i) end)
     tabs[i] = t
@@ -452,19 +583,52 @@ function SG.InitUI()
   end
 
   ------------------------------------------------------------------
-  -- Tab C / D: stubs (built in later phases)
+  -- Tab C: Run Journal (this character) - list with per-run delete
   ------------------------------------------------------------------
-  local cCtext = TFS(content[3]:CreateFontString(nil, "OVERLAY", "GameFontDisable"), "dim")
-  cCtext:SetPoint("TOPLEFT", 12, -12); cCtext:SetPoint("TOPRIGHT", -12, -12); cCtext:SetJustifyH("LEFT")
-  cCtext:SetText("Farm intel - coming soon:\n\n- AH Hot Commodity (what's selling, supply-depth based)\n- Previous Farm Locations (filterable, from the Run Journal)\n- Professions (current character) vs what's selling\n- Reset All Data")
+  local cC = content[3]
+  local cChdr = TFS(cC:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
+  cChdr:SetPoint("TOPLEFT", 12, -8)
+  cChdr:SetText("Run journal - this character, newest first. Click x to delete.")
 
-  local cDtext = TFS(content[4]:CreateFontString(nil, "OVERLAY", "GameFontDisable"), "dim")
-  cDtext:SetPoint("TOPLEFT", 12, -12); cDtext:SetPoint("TOPRIGHT", -12, -12); cDtext:SetJustifyH("LEFT")
-  cDtext:SetText("Sell review - opens automatically at a merchant (or /tim sell).\n\nA later phase mirrors that window here as a tab.")
-  local cDbtn = CreateFrame("Button", nil, content[4], "UIPanelButtonTemplate")
-  cDbtn:SetSize(140, 22); cDbtn:SetPoint("TOP", 0, -90)
-  cDbtn:SetText("Open Sell window")
-  cDbtn:SetScript("OnClick", function() if SG.ShowSellWindow then SG.ShowSellWindow(true) end end)
+  local undoBtn = CreateFrame("Button", nil, cC, "UIPanelButtonTemplate")
+  undoBtn:SetSize(90, 20); undoBtn:SetPoint("TOPRIGHT", -6, -4)
+  undoBtn:SetText("Undo last"); undoBtn:SetScript("OnClick", function() SG.UndoLastRun() end)
+
+  journalScroll = CreateFrame("ScrollFrame", "TimeIsMoneyJournalScroll", cC, "FauxScrollFrameTemplate")
+  journalScroll:SetPoint("TOPLEFT", 8, -30); journalScroll:SetPoint("BOTTOMRIGHT", -28, 8)
+  journalScroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, JROW_H, RefreshJournal)
+  end)
+
+  journalRows = {}
+  for i = 1, JMAX do
+    local row = CreateFrame("Button", nil, cC)
+    row:SetHeight(JROW_H)
+    row:SetPoint("TOPLEFT", journalScroll, "TOPLEFT", 0, -(i - 1) * JROW_H)
+    row:SetPoint("TOPRIGHT", journalScroll, "TOPRIGHT", 0, -(i - 1) * JROW_H)
+    local hl = row:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.06)
+    row.text = TFS(row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), "base")
+    row.text:SetPoint("LEFT", 4, 0); row.text:SetPoint("RIGHT", -22, 0); row.text:SetJustifyH("LEFT")
+    row.del = CreateFrame("Button", nil, row)
+    row.del:SetSize(18, 18); row.del:SetPoint("RIGHT", -2, 0)
+    row.del.x = TFS(row.del:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "dim")
+    row.del.x:SetPoint("CENTER"); row.del.x:SetText("x")
+    row.del:SetScript("OnEnter", function(self) self.x:SetTextColor(1, 0.35, 0.35) end)
+    row.del:SetScript("OnLeave", function(self) local T = SG.Theme(); self.x:SetTextColor(T.dim[1], T.dim[2], T.dim[3]) end)
+    row.del:SetScript("OnClick", function() if row.absIdx then SG.DeleteRun(row.absIdx) end end)
+    journalRows[i] = row
+  end
+
+  ------------------------------------------------------------------
+  -- Tab D (Gains): where this run's loot goes — vendor pile (top) + AH goods (bottom)
+  ------------------------------------------------------------------
+  local cD = content[4]
+  gV = BuildGoodsSection(cD, -8)      -- "To vendor"    (junk)
+  gA = BuildGoodsSection(cD, -166)    -- "To sell on AH" (mats + auctionable BoEs)
+  local gBtn = CreateFrame("Button", nil, cD, "UIPanelButtonTemplate")
+  gBtn:SetSize(150, 22); gBtn:SetPoint("BOTTOM", 0, 6)
+  gBtn:SetText("Sell vendor items")
+  gBtn:SetScript("OnClick", function() if SG.ShowSellWindow then SG.ShowSellWindow(true) end end)
 
   -- Live ticking for Tab A timer/GPH
   frame:SetScript("OnUpdate", function(self, elapsed)
@@ -566,6 +730,8 @@ function SG.RefreshUI()
   end
 
   RefreshTicker()   -- keep the floating widget's state in sync (start/stop from the big panel)
+  RefreshJournal()  -- Tab C run list
+  RefreshGains()    -- Tab D vendor / AH goods lists
 end
 
 function SG.Toggle()
