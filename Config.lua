@@ -13,6 +13,28 @@ local function Label(parent, x, y, text, font)
   return fs
 end
 
+-- A small grey help line (plain-language explanation under a control).
+local function Help(parent, x, y, text)
+  local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+  fs:SetPoint("TOPLEFT", x, y)
+  fs:SetPoint("RIGHT", parent, "RIGHT", -16, 0)
+  fs:SetJustifyH("LEFT")
+  fs:SetText(text)
+  return fs
+end
+
+-- Attach a hover tooltip (title + wrapped body) to any frame.
+local function Tip(frame, title, body)
+  if not frame or not body then return end
+  frame:HookScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+    GameTooltip:AddLine(title, 1, 1, 1)
+    GameTooltip:AddLine(body, 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+  end)
+  frame:HookScript("OnLeave", GameTooltip_Hide)
+end
+
 -- A row of buttons acting as a single-choice selector. The selected button is
 -- disabled so it reads as "current"; clicking another switches the value.
 local function Segmented(parent, x, y, label, options, get, set)
@@ -28,6 +50,7 @@ local function Segmented(parent, x, y, label, options, get, set)
       SG.RefreshConfig()
       if SG.RefreshUI then SG.RefreshUI() end
     end)
+    if opt.tip then Tip(b, opt.text, opt.tip) end
     entries[#entries + 1] = { btn = b, value = opt.value }
     bx = bx + (opt.w or 56) + 4
   end
@@ -39,7 +62,7 @@ local function Segmented(parent, x, y, label, options, get, set)
   end
 end
 
-local function Checkbox(parent, x, y, label, get, set)
+local function Checkbox(parent, x, y, label, get, set, tip)
   local c = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
   c:SetPoint("TOPLEFT", x, y)
   c:SetSize(24, 24)
@@ -50,6 +73,7 @@ local function Checkbox(parent, x, y, label, get, set)
     set(self:GetChecked() and true or false)
     if SG.RefreshUI then SG.RefreshUI() end
   end)
+  if tip then Tip(c, label, tip) end
   refreshers[#refreshers + 1] = function() c:SetChecked(get()) end
 end
 
@@ -79,7 +103,7 @@ function SG.InitConfig()
   if cfg then return end
 
   cfg = CreateFrame("Frame", "TimeIsMoneyConfigFrame", UIParent, "BackdropTemplate")
-  cfg:SetSize(400, 440)
+  cfg:SetSize(400, 520)
   cfg:SetPoint("CENTER", 60, 0)
   cfg:SetMovable(true)
   cfg:EnableMouse(true)
@@ -114,36 +138,46 @@ function SG.InitConfig()
   -- Income sources
   Label(cfg, 16, -44, "Track income sources", "GameFontHighlight")
   Checkbox(cfg, 12, -62, "Skinning",
-    function() return S().profs.skinning end, function(v) S().profs.skinning = v end)
+    function() return S().profs.skinning end, function(v) S().profs.skinning = v end,
+    "Count leather you gather as income.")
   Checkbox(cfg, 90, -62, "Mining",
-    function() return S().profs.mining end, function(v) S().profs.mining = v end)
+    function() return S().profs.mining end, function(v) S().profs.mining = v end,
+    "Count ore and stone you gather as income.")
   Checkbox(cfg, 164, -62, "Herbalism",
-    function() return S().profs.herbalism end, function(v) S().profs.herbalism = v end)
+    function() return S().profs.herbalism end, function(v) S().profs.herbalism = v end,
+    "Count herbs you gather as income.")
   Checkbox(cfg, 250, -62, "Tailoring",
-    function() return S().profs.tailoring end, function(v) S().profs.tailoring = v end)
+    function() return S().profs.tailoring end, function(v) S().profs.tailoring = v end,
+    "Count cloth looted off kills as income (tailoring has no gather cast).")
   Checkbox(cfg, 330, -62, "Fishing",
-    function() return S().profs.fishing end, function(v) S().profs.fishing = v end)
+    function() return S().profs.fishing end, function(v) S().profs.fishing = v end,
+    "Count fish you catch as income (loot arrives seconds after the cast).")
   Checkbox(cfg, 16, -86, "Coin (looted gold)",
-    function() return S().profs.money end, function(v) S().profs.money = v end)
+    function() return S().profs.money end, function(v) S().profs.money = v end,
+    "Count raw gold you loot from mobs and objects.")
   Checkbox(cfg, 200, -86, "Auto-start runs",
-    function() return S().autoStartRun end, function(v) S().autoStartRun = v end)
+    function() return S().autoStartRun end, function(v) S().autoStartRun = v end,
+    "Begin a run the moment you gather or loot something - no need to press Start.")
   Checkbox(cfg, 16, -108, "Count looted drops (greys / BoEs picked up on a run)",
-    function() return S().countDrops end, function(v) S().countDrops = v end)
+    function() return S().countDrops end, function(v) S().countDrops = v end,
+    "Also value greys, BoEs and other mob drops - not just gathered mats.")
 
   -- Item pricing
   Segmented(cfg, 16, -134, "Item pricing", {
-    { text = "Vendor",      value = "vendor", w = 60 },
-    { text = "AH if sells",  value = "sells",  w = 84 },
-    { text = "AH always",    value = "ah",     w = 78 },
+    { text = "Vendor",       value = "vendor", w = 60, tip = "Always value items at their vendor sell price." },
+    { text = "AH if sells",  value = "sells",  w = 84, tip = "Use AH price for mats/things that sell; vendor price for greys and random gear." },
+    { text = "AH always",    value = "ah",     w = 78, tip = "Always use the AH price when one is available." },
   }, function() return S().priceMode end, function(v) SG.SetPriceMode(v) end)
 
-  -- GPH window
-  Segmented(cfg, 16, -190, "Gold / hour window", {
-    { text = "5m",  value = 5,  w = 40 },
-    { text = "10m", value = 10, w = 44 },
-    { text = "15m", value = 15, w = 44 },
-    { text = "20m", value = 20, w = 44 },
+  -- Gold/hour smoothing (intent presets + custom minutes)
+  Segmented(cfg, 16, -186, "Gold/hour smoothing", {
+    { text = "World ~8m",    value = 8,  w = 74, tip = "Steady world farming: a short window reacts quickly to your pace." },
+    { text = "Dungeon ~20m", value = 20, w = 82, tip = "Bursty dungeon/raid loot: a longer window smooths the boss-kill spikes." },
+    { text = "5m",  value = 5,  w = 36 },
+    { text = "10m", value = 10, w = 40 },
+    { text = "15m", value = 15, w = 40 },
   }, function() return S().gphWindow end, function(v) S().gphWindow = v end)
+  Help(cfg, 18, -212, "How far back the Gold/hour average looks. Shorter reacts faster; longer is steadier.")
 
   -- TSM price source
   Segmented(cfg, 16, -240, "TSM price source (used only if TSM is installed)", {
@@ -162,8 +196,30 @@ function SG.InitConfig()
     { text = "25g", value = 250000, w = 44 },
   }, function() return S().minValue end, function(v) S().minValue = v end)
 
-  Label(cfg, 16, -338, "Floating timer size", "GameFontHighlight")
-  Slider(cfg, 24, -360, "smaller  -  larger", 0.6, 2.0, 0.05,
+  -- Selling (#14) - the merchant workflow toggles, formerly slash-only
+  Label(cfg, 16, -336, "Selling (at a merchant)", "GameFontHighlight")
+  Checkbox(cfg, 12, -354, "Auto-open sell window",
+    function() return S().sellWindow ~= false end, function(v) S().sellWindow = v end,
+    "When you talk to a merchant, pop the sell-review window listing what would be vendored.")
+  Checkbox(cfg, 210, -354, "Confirm big / gear sells",
+    function() return S().sellConfirm ~= false end, function(v) S().sellConfirm = v end,
+    "Ask before vendoring gear/BoP or a large pile, so nothing valuable goes by accident.")
+  Checkbox(cfg, 12, -378, "Skip greys (leave for another trash-seller)",
+    function() return S().sellSkipGreys end, function(v) S().sellSkipGreys = v end,
+    "Leave grey (poor) items in your bags for another addon to handle.")
+
+  Segmented(cfg, 16, -404, "Auto-vendor old BoP gear at/below item level", {
+    { text = "Never", value = 0,   w = 54, tip = "Never auto-vendor gear." },
+    { text = "200",   value = 200, w = 44 },
+    { text = "220",   value = 220, w = 44 },
+    { text = "250",   value = 250, w = 44 },
+    { text = "280",   value = 280, w = 44 },
+  }, function() return S().sellGearMaxIlvl or 0 end, function(v) S().sellGearMaxIlvl = v end)
+  Help(cfg, 18, -430, "Vendors old bind-on-pickup gear at or below this item level. Current-expansion gear is never touched.")
+
+  -- Floating timer size
+  Label(cfg, 16, -454, "Floating timer size", "GameFontHighlight")
+  Slider(cfg, 24, -476, "smaller  -  larger", 0.6, 2.0, 0.05,
     function() return S().tickerScale or 1.0 end,
     function(v) SG.SetTickerScale(v) end)
 

@@ -9,14 +9,15 @@ local todayFS, weekFS, allFS, bars, chartLabel, bestRunFS, scopeBtn
 -- Tab C (Run journal)
 local journalScroll, journalRows
 local JROW_H, JMAX = 24, 12
--- Tab D (Gains): two goods sections — vendor pile + AH goods
-local gV, gA
-local GAINS_ROWS, GAINS_RH = 6, 22
+-- Tab D (Gains): two side-by-side scrollable goods columns — vendor pile + AH goods,
+-- plus a sell footer (this tab IS the #14 sell interface when you're at a merchant)
+local gV, gA, gainsSellFS, gainsSellBtn, gainsUndoBtn
+local GAINS_ROWS, GAINS_RH = 12, 22
 
 -- Tab labels: Grind (current run) · Gold (earnings history) · Grounds (farm
 -- locations/journal) · Gains (what this run gave you + where it goes: vendor / AH).
 local TABS = { "Grind", "Gold", "Grounds", "Gains" }
-local WIN_W, WIN_H = 400, 420   -- ALL tabs share one size (no jarring resize)
+local WIN_W, WIN_H = 460, 420   -- ALL tabs share one size (no jarring resize)
 
 ----------------------------------------------------------------------
 -- Theme (dark / light)
@@ -26,15 +27,20 @@ local THEMES = {
     shadow = true, outline = true,
     bg = { 0.06, 0.06, 0.07, 0.94 }, border = { 0.20, 0.50, 0.30 },
     base = { 0.90, 0.90, 0.90 }, label = { 1.00, 0.82, 0.00 }, dim = { 0.55, 0.55, 0.55 }, accent = { 0.56, 0.84, 0.58 },
+    pop = { 1.00, 0.65, 0.20 },   -- warm amber: high-contrast partner to the green, for hints that must pop
     baseHex = "ffffff", accentHex = "8fd694", goldHex = "ffd200", dimHex = "808080", redHex = "ff7070",
     tabOn = { 0.20, 0.50, 0.30, 0.85 }, tabOff = { 0.12, 0.12, 0.13, 0.90 }, tabOnText = { 1, 1, 1 }, tabOffText = { 0.7, 0.7, 0.7 },
+    -- Buttons: dark forest green #1B4229 with light mint text #A7D7B4; pressed is a darker green.
+    btn = { 0.11, 0.26, 0.16 }, btnDown = { 0.07, 0.17, 0.10 }, btnDim = { 0.20, 0.26, 0.22 }, btnText = { 0.65, 0.84, 0.71 },
   },
   light = {
     shadow = false, outline = false,
     bg = { 0.90, 0.88, 0.82, 0.98 }, border = { 0.42, 0.34, 0.18 },
     base = { 0.13, 0.13, 0.13 }, label = { 0.42, 0.32, 0.05 }, dim = { 0.38, 0.38, 0.38 }, accent = { 0.10, 0.48, 0.24 },
+    pop = { 0.72, 0.30, 0.00 },   -- deep orange: reads on the off-white background, still contrasts the green
     baseHex = "1c1c1c", accentHex = "1a7a3c", goldHex = "8a5a00", dimHex = "555555", redHex = "a01818",
     tabOn = { 0.50, 0.40, 0.22, 0.95 }, tabOff = { 0.80, 0.77, 0.70, 0.95 }, tabOnText = { 1, 1, 1 }, tabOffText = { 0.30, 0.30, 0.30 },
+    btn = { 0.11, 0.26, 0.16 }, btnDown = { 0.07, 0.17, 0.10 }, btnDim = { 0.60, 0.64, 0.61 }, btnText = { 0.65, 0.84, 0.71 },
   },
 }
 
@@ -43,9 +49,38 @@ function SG.Theme()
   return THEMES[t == "light" and "light" or "dark"]
 end
 
--- Register a FontString for theming with a role: "base" | "label" | "dim" | "accent".
+-- Register a FontString for theming with a role: "base" | "label" | "dim" | "accent" | "pop".
 local themedFS = {}
 local function TFS(fs, role) themedFS[#themedFS + 1] = { fs = fs, role = role or "base" }; return fs end
+
+-- Restyle a UIPanelButtonTemplate button into a flat themed button (green fill, white text).
+-- Replaces the default red art with WHITE8X8 swatches we vertex-color per theme in ApplyTheme.
+local themedBtns = {}
+-- Paint a styled button. Uses per-button overrides (b._bg / b._txt) when set, else theme green.
+local function ColorButton(b, T)
+  local bg   = b._bg   or T.btn
+  local down = b._down or T.btnDown
+  local txt  = b._txt  or T.btnText
+  local n = b:GetNormalTexture();   if n then n:SetVertexColor(bg[1], bg[2], bg[3], 1) end
+  local p = b:GetPushedTexture();   if p then p:SetVertexColor(down[1], down[2], down[3], 1) end
+  local d = b:GetDisabledTexture(); if d then d:SetVertexColor(T.btnDim[1], T.btnDim[2], T.btnDim[3], 1) end
+  local fs = b:GetFontString();     if fs then fs:SetTextColor(txt[1], txt[2], txt[3]) end
+end
+-- StyleButton(btn[, bg][, txt]): bg/txt are optional {r,g,b} overrides (0-1). Without them the
+-- button follows the theme's green.
+local function StyleButton(btn, bg, txt)
+  if not btn then return btn end
+  btn:SetNormalTexture("Interface\\Buttons\\WHITE8X8")
+  btn:SetPushedTexture("Interface\\Buttons\\WHITE8X8")
+  btn:SetDisabledTexture("Interface\\Buttons\\WHITE8X8")
+  btn:SetHighlightTexture("Interface\\Buttons\\WHITE8X8")
+  local hi = btn:GetHighlightTexture(); if hi then hi:SetVertexColor(1, 1, 1, 0.18) end
+  if bg  then btn._bg = bg; btn._down = { bg[1] * 0.65, bg[2] * 0.65, bg[3] * 0.65 } end
+  if txt then btn._txt = txt end
+  themedBtns[#themedBtns + 1] = btn
+  ColorButton(btn, SG.Theme())   -- color now so lazily-built buttons don't flash white pre-theme
+  return btn
+end
 
 local function ApplyTheme()
   local T = SG.Theme()
@@ -66,7 +101,7 @@ local function ApplyTheme()
     shade(e.fs)
   end
   -- Big timers: a black OUTLINE around dark digits muddies them on light; drop it there.
-  if timerFS then timerFS:SetFont(STANDARD_TEXT_FONT, 40, T.outline and "OUTLINE" or "") end
+  if timerFS then timerFS:SetFont(STANDARD_TEXT_FONT, 44, T.outline and "OUTLINE" or "") end
   if ticker and ticker.timer then
     ticker.timer:SetFont(STANDARD_TEXT_FONT, 22, T.outline and "OUTLINE" or "")
     shade(ticker.timer); shade(ticker.gold); shade(ticker.gph)
@@ -79,6 +114,7 @@ local function ApplyTheme()
       tabs[j].fs:SetTextColor(tc[1], tc[2], tc[3])
     end
   end
+  for _, b in ipairs(themedBtns) do ColorButton(b, T) end
   if SG.RefreshUI then SG.RefreshUI() end
 end
 SG.ApplyTheme = ApplyTheme
@@ -141,63 +177,110 @@ local function RefreshJournal()
   end
 end
 
--- Tab D (Gains): build one goods section — a header + GAINS_ROWS static item rows.
-local function BuildGoodsSection(parent, y)
-  local sec = { rows = {} }
+local RefreshGains   -- forward declaration: the column scroll handlers call it
+
+-- Compact, text-only money for the narrow Gains rows: just the largest unit (e.g. "422g",
+-- "24s", "8c") so the value never collides with the item name the way coin icons do.
+local function CoinText(copper)
+  copper = math.floor(copper or 0)
+  if copper >= 10000 then return ("%dg"):format(math.floor(copper / 10000)) end
+  if copper >= 100   then return ("%ds"):format(math.floor(copper / 100)) end
+  return ("%dc"):format(copper)
+end
+
+-- Tab D (Gains): build one scrollable goods column — a header + a FauxScrollFrame of item rows.
+-- Rows are clickable: left = keep this visit (vendor column), right = per-item rule menu,
+-- shift = link, hover = tooltip. isVendor gates the keep-toggle behavior.
+local function BuildGoodsColumn(parent, x, w, scrollName, isVendor)
+  local sec = { rows = {}, isVendor = isVendor }
   sec.hdr = TFS(parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight"), "accent")
-  sec.hdr:SetPoint("TOPLEFT", 12, y)
+  sec.hdr:SetPoint("TOPLEFT", x, -8); sec.hdr:SetWidth(w); sec.hdr:SetJustifyH("LEFT")
+
+  sec.scroll = CreateFrame("ScrollFrame", scrollName, parent, "FauxScrollFrameTemplate")
+  sec.scroll:SetPoint("TOPLEFT", x, -28)
+  sec.scroll:SetSize(w, GAINS_ROWS * GAINS_RH)
+  sec.scroll:SetScript("OnVerticalScroll", function(self, offset)
+    FauxScrollFrame_OnVerticalScroll(self, offset, GAINS_RH, RefreshGains)
+  end)
+
   for i = 1, GAINS_ROWS do
-    local row = CreateFrame("Frame", nil, parent)
-    row:SetSize(360, GAINS_RH)
-    row:SetPoint("TOPLEFT", 14, y - 18 - (i - 1) * GAINS_RH)
-    row.icon = row:CreateTexture(nil, "ARTWORK")
-    row.icon:SetSize(16, 16); row.icon:SetPoint("LEFT", 0, 0)
+    local row = CreateFrame("Button", nil, parent)
+    row:SetHeight(GAINS_RH)
+    row:SetPoint("TOPLEFT", sec.scroll, "TOPLEFT", 0, -(i - 1) * GAINS_RH)
+    row:SetPoint("TOPRIGHT", sec.scroll, "TOPRIGHT", 0, -(i - 1) * GAINS_RH)
+    row:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+    local hl = row:CreateTexture(nil, "HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.08)
+    row.icon = row:CreateTexture(nil, "ARTWORK"); row.icon:SetSize(14, 14); row.icon:SetPoint("LEFT", 2, 0)
     row.text = TFS(row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), "base")
-    row.text:SetPoint("LEFT", row.icon, "RIGHT", 5, 0); row.text:SetPoint("RIGHT", -74, 0)
-    row.text:SetJustifyH("LEFT"); row.text:SetWordWrap(false)
+    row.text:SetPoint("LEFT", row.icon, "RIGHT", 4, 0); row.text:SetPoint("RIGHT", -40, 0)
+    row.text:SetJustifyH("LEFT"); row.text:SetWordWrap(false); row.text:SetFont(STANDARD_TEXT_FONT, 11)
     row.val = TFS(row:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
-    row.val:SetPoint("RIGHT", -8, 0)
+    row.val:SetPoint("RIGHT", -4, 0); row.val:SetFont(STANDARD_TEXT_FONT, 11); row.val:SetJustifyH("RIGHT")
+
+    row:SetScript("OnEnter", function(self)
+      if self.e then GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetHyperlink(self.e.link); GameTooltip:Show() end
+    end)
+    row:SetScript("OnLeave", GameTooltip_Hide)
+    row:SetScript("OnClick", function(self, button)
+      local e = self.e; if not e then return end
+      if HandleModifiedItemClick and HandleModifiedItemClick(e.link) then return end  -- shift-link, ctrl-dress, etc.
+      if button == "RightButton" then SG.SellRuleMenu(self, e.link); return end
+      if sec.isVendor and SG.SellToggleKeep then SG.SellToggleKeep(e); RefreshGains() end
+    end)
     sec.rows[i] = row
   end
+
   sec.empty = TFS(parent:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
-  sec.empty:SetPoint("TOPLEFT", 16, y - 20)
+  sec.empty:SetPoint("TOPLEFT", sec.scroll, "TOPLEFT", 2, -2); sec.empty:SetWidth(w); sec.empty:SetJustifyH("LEFT")
   return sec
 end
 
--- Fill one Gains section from a scanned goods list (newest-first not needed; bag order).
--- Shows up to GAINS_ROWS items; if there are more, the last row collapses to "… and N more".
+-- Fill one scrollable column from a scanned goods list (bag order), honoring its scroll offset.
 local function FillGoods(sec, list, total, label, emptyMsg)
   if not sec then return end
   local T = SG.Theme()
-  sec.hdr:SetText(("%s  |cff%s%s|r"):format(label, T.goldHex, SG.Money(total or 0)))
+  sec.hdr:SetText(("%s  |cff%s%s|r"):format(label, T.goldHex, CoinText(total or 0)))
   local n = #list
+  FauxScrollFrame_Update(sec.scroll, n, GAINS_ROWS, GAINS_RH)
+  local offset = FauxScrollFrame_GetOffset(sec.scroll)
   for i = 1, GAINS_ROWS do
-    local row = sec.rows[i]
-    if i == GAINS_ROWS and n > GAINS_ROWS then
-      row.icon:SetTexture(nil)
-      row.text:SetText(("|cff808080… and %d more|r"):format(n - (GAINS_ROWS - 1)))
-      row.val:SetText(""); row:Show()
-    else
-      local e = list[i]
-      if e then
-        row.icon:SetTexture(select(10, C_Item.GetItemInfo(e.link)) or 134400)
-        row.text:SetText(("%s|cff808080  x%d|r"):format(e.link, e.count or 1))
-        row.val:SetText(SG.Money(e.value or 0)); row:Show()
+    local row, e = sec.rows[i], list[i + offset]
+    row.e = e
+    if e then
+      local cnt = (e.count or 1) > 1 and ("|cff808080 x%d|r"):format(e.count) or ""
+      row.icon:SetTexture(select(10, C_Item.GetItemInfo(e.link)) or 134400)
+      row.text:SetText((e.link or "?") .. cnt)
+      if sec.isVendor and SG.SellIsKept and SG.SellIsKept(e) then
+        row.val:SetText("|cffff7070keep|r"); row:SetAlpha(0.45)   -- excluded from Sell All this visit
       else
-        row:Hide()
+        row.val:SetText(CoinText(e.value or 0)); row:SetAlpha(1)
       end
+      row:Show()
+    else
+      row:Hide()
     end
   end
   sec.empty:SetText(emptyMsg or ""); sec.empty:SetShown(n == 0)
 end
 
--- Rescan bags and refill both Gains sections (vendor pile + AH goods).
-local function RefreshGains()
+-- Rescan bags, refill both columns, and drive the sell footer. Each column honors its offset.
+RefreshGains = function()
   if not gV then return end
   local r = SG.ScanSellables and SG.ScanSellables()
   if not r then return end
-  FillGoods(gV, r.vendor, r.totalVendor, "To vendor",     "Nothing to vendor right now.")
-  FillGoods(gA, r.ah,     r.totalAH,     "To sell on AH",  "Nothing to list right now.")
+  FillGoods(gV, r.vendor, r.totalVendor, "Vendor",     "Nothing to vendor.")
+  FillGoods(gA, r.ah,     r.totalAH,     "Sell on AH", "Nothing to list.")
+
+  if gainsSellFS then
+    local atM = SG.AtMerchant and SG.AtMerchant()
+    local n, total = 0, 0
+    if SG.SellSummary then n, total = SG.SellSummary(r) end
+    gainsSellFS:SetText(("Will sell |cffffffff%d|r for ~|cff8fd694%s|r"):format(n, CoinText(total)))
+    gainsSellBtn:SetEnabled(atM and n > 0)
+    gainsSellBtn:SetText(atM and "Sell All" or "Visit a merchant")
+    local bb = (GetNumBuybackItems and GetNumBuybackItems()) or 0
+    gainsUndoBtn:SetEnabled(atM and bb > 0)
+  end
 end
 
 StaticPopupDialogs["TIMEISMONEY_RESET"] = {
@@ -253,9 +336,9 @@ local function BuildLabelDialog()
   d.hint = TFS(d:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
   d.hint:SetPoint("TOP", 0, -72); d.hint:SetText("Click the box to rename · Save keeps it")
 
-  local save = CreateFrame("Button", nil, d, "UIPanelButtonTemplate")
+  local save = StyleButton(CreateFrame("Button", nil, d, "UIPanelButtonTemplate"))
   save:SetSize(94, 22); save:SetPoint("BOTTOMRIGHT", -14, 12); save:SetText("Save"); save:SetScript("OnClick", commit)
-  local skipB = CreateFrame("Button", nil, d, "UIPanelButtonTemplate")
+  local skipB = StyleButton(CreateFrame("Button", nil, d, "UIPanelButtonTemplate"))
   skipB:SetSize(94, 22); skipB:SetPoint("BOTTOMLEFT", 14, 12); skipB:SetText("Skip"); skipB:SetScript("OnClick", skip)
 
   d:Hide()
@@ -282,11 +365,11 @@ end
 ----------------------------------------------------------------------
 local function StatRow(parent, label, y)
   local l = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-  l:SetPoint("TOPLEFT", 12, y)
-  l:SetText(label); TFS(l, "label")
+  l:SetPoint("TOPLEFT", 14, y)
+  l:SetText(label); l:SetFont(STANDARD_TEXT_FONT, 15); TFS(l, "label")
   local v = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-  v:SetPoint("TOPRIGHT", -12, y)
-  v:SetJustifyH("RIGHT"); TFS(v, "base")
+  v:SetPoint("TOPRIGHT", -14, y)
+  v:SetJustifyH("RIGHT"); v:SetFont(STANDARD_TEXT_FONT, 15); TFS(v, "base")
   return v
 end
 
@@ -337,7 +420,7 @@ local function RefreshTicker()
   ticker.timer:SetText(FmtClock(SG.RunElapsed()))
   ticker.gold:SetText(("This run: |cff" .. T.accentHex .. "%s|r"):format(Short(SG.SessionValue())))
   ticker.gph:SetText(GPHText())
-  ticker.runBtn:SetText(SG.RunActive() and "Stop" or "Start")
+  ticker.runBtn:SetText(SG.RunActive() and "|cffffd200Stop|r" or "Start")
   ticker.pauseBtn:SetText(SG.RunPaused() and "Resume" or "Pause")
   ticker.pauseBtn:SetEnabled(SG.RunActive())
 end
@@ -378,10 +461,10 @@ local function BuildTicker()
   ticker.gph = ticker:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
   ticker.gph:SetPoint("TOP", ticker.gold, "BOTTOM", 0, -2)
 
-  ticker.runBtn = CreateFrame("Button", nil, ticker, "UIPanelButtonTemplate")
+  ticker.runBtn = StyleButton(CreateFrame("Button", nil, ticker, "UIPanelButtonTemplate"))
   ticker.runBtn:SetSize(80, 20); ticker.runBtn:SetPoint("BOTTOMLEFT", 6, 6)
   ticker.runBtn:SetText("Start"); ticker.runBtn:SetScript("OnClick", function() SG.ToggleRun() end)
-  ticker.pauseBtn = CreateFrame("Button", nil, ticker, "UIPanelButtonTemplate")
+  ticker.pauseBtn = StyleButton(CreateFrame("Button", nil, ticker, "UIPanelButtonTemplate"))
   ticker.pauseBtn:SetSize(80, 20); ticker.pauseBtn:SetPoint("BOTTOMRIGHT", -6, 6)
   ticker.pauseBtn:SetText("Pause"); ticker.pauseBtn:SetScript("OnClick", function() SG.PauseRun() end)
 
@@ -441,10 +524,12 @@ function SG.InitUI()
   close:SetPoint("TOPRIGHT", 2, 2)
 
   tabs = {}
+  local TAB_W, TAB_GAP = 80, 15
+  local tabStartX = (WIN_W - (#TABS * TAB_W + (#TABS - 1) * TAB_GAP)) / 2   -- centered as a group
   for i = 1, #TABS do
     local t = CreateFrame("Button", nil, frame)
-    t:SetSize(80, 24)
-    t:SetPoint("TOPLEFT", 8 + (i - 1) * 82, -27)
+    t:SetSize(TAB_W, 24)
+    t:SetPoint("TOPLEFT", tabStartX + (i - 1) * (TAB_W + TAB_GAP), -27)
     local bg = t:CreateTexture(nil, "BACKGROUND"); bg:SetAllPoints(); bg:SetColorTexture(0.12, 0.12, 0.13, 0.90)
     local fs = t:CreateFontString(nil, "OVERLAY", "GameFontNormal"); fs:SetAllPoints(); fs:SetText(TABS[i])
     fs:SetFont(STANDARD_TEXT_FONT, 14, "OUTLINE")   -- bold + larger so the tab labels read clearly
@@ -467,7 +552,7 @@ function SG.InitUI()
   ------------------------------------------------------------------
   local cA = content[1]
 
-  local instBtn = CreateFrame("Button", nil, cA, "UIPanelButtonTemplate")
+  local instBtn = StyleButton(CreateFrame("Button", nil, cA, "UIPanelButtonTemplate"))
   instBtn:SetSize(110, 20); instBtn:SetPoint("TOPLEFT", 4, -4)
   instBtn:SetText("Reset Instances")
   instBtn:SetScript("OnClick", function() SG.ResetInstances() end)
@@ -480,7 +565,7 @@ function SG.InitUI()
   end)
   instBtn:SetScript("OnLeave", GameTooltip_Hide)
 
-  local tickBtn = CreateFrame("Button", nil, cA, "UIPanelButtonTemplate")
+  local tickBtn = StyleButton(CreateFrame("Button", nil, cA, "UIPanelButtonTemplate"))
   tickBtn:SetSize(104, 20); tickBtn:SetPoint("TOPRIGHT", -4, -4)
   tickBtn:SetText("Floating Timer")
   tickBtn:SetScript("OnClick", function() SG.ToggleTicker() end)
@@ -502,40 +587,42 @@ function SG.InitUI()
   labelEdit:SetScript("OnTextChanged", function(self) if self:HasFocus() then SG.session.label = self:GetText() end end)
 
   timerFS = cA:CreateFontString(nil, "OVERLAY", "GameFontNormalHuge")
-  timerFS:SetPoint("TOP", 0, -38)
-  timerFS:SetFont(STANDARD_TEXT_FONT, 40, "OUTLINE")
+  timerFS:SetPoint("TOP", 0, -40)
+  timerFS:SetFont(STANDARD_TEXT_FONT, 44, "OUTLINE")
   timerFS:SetText("0:00"); TFS(timerFS, "base")
 
-  gphFS    = StatRow(cA, "Gold / hour",    -96)
-  sessFS   = StatRow(cA, "This run (est)", -118)
-  coinFS   = StatRow(cA, "Coin",           -140)
-  repairFS = StatRow(cA, "Repairs",        -162)
-  netFS    = StatRow(cA, "Net",            -184)
-  durFS    = StatRow(cA, "Durability",     -206)
+  -- Rows spread to fill the panel (spacing 30) so the tab reads full, not sparse.
+  gphFS    = StatRow(cA, "Gold / hour",    -108)
+  sessFS   = StatRow(cA, "This run (est)", -138)
+  coinFS   = StatRow(cA, "Coin",           -168)
+  repairFS = StatRow(cA, "Repairs",        -198)
+  netFS    = StatRow(cA, "Net",            -228)
+  durFS    = StatRow(cA, "Durability",     -258)
 
-  breakdownFS = cA:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  breakdownFS:SetPoint("TOPLEFT", 12, -226); breakdownFS:SetPoint("TOPRIGHT", -12, -226)
+  breakdownFS = cA:CreateFontString(nil, "OVERLAY", "GameFontDisable")
+  breakdownFS:SetPoint("TOPLEFT", 12, -290); breakdownFS:SetPoint("TOPRIGHT", -12, -290)
   breakdownFS:SetJustifyH("CENTER"); breakdownFS:SetSpacing(3); TFS(breakdownFS, "dim")
 
-  -- Run controls grouped together along the bottom.
-  runBtn = CreateFrame("Button", nil, cA, "UIPanelButtonTemplate")
-  runBtn:SetSize(84, 22); runBtn:SetPoint("BOTTOMLEFT", 4, 4)
+  -- Run controls spread evenly across the bottom (runBtn pinned left, optBtn pinned right,
+  -- Pause/Reset chained with ~24px gaps so they span the whole window width).
+  runBtn = StyleButton(CreateFrame("Button", nil, cA, "UIPanelButtonTemplate"))
+  runBtn:SetSize(100, 26); runBtn:SetPoint("BOTTOMLEFT", 8, 8)
   runBtn:SetText("Start Run"); runBtn:SetScript("OnClick", function() SG.ToggleRun() end)
-  pauseBtn = CreateFrame("Button", nil, cA, "UIPanelButtonTemplate")
-  pauseBtn:SetSize(72, 22); pauseBtn:SetPoint("LEFT", runBtn, "RIGHT", 6, 0)
+  pauseBtn = StyleButton(CreateFrame("Button", nil, cA, "UIPanelButtonTemplate"))
+  pauseBtn:SetSize(88, 26); pauseBtn:SetPoint("LEFT", runBtn, "RIGHT", 24, 0)
   pauseBtn:SetText("Pause"); pauseBtn:SetScript("OnClick", function() SG.PauseRun() end)
-  resetBtn = CreateFrame("Button", nil, cA, "UIPanelButtonTemplate")
-  resetBtn:SetSize(64, 22); resetBtn:SetPoint("LEFT", pauseBtn, "RIGHT", 6, 0)
+  resetBtn = StyleButton(CreateFrame("Button", nil, cA, "UIPanelButtonTemplate"))
+  resetBtn:SetSize(84, 26); resetBtn:SetPoint("LEFT", pauseBtn, "RIGHT", 24, 0)
   resetBtn:SetText("Reset"); resetBtn:SetScript("OnClick", function() SG.ResetRun() end)
-  local optBtn = CreateFrame("Button", nil, cA, "UIPanelButtonTemplate")
-  optBtn:SetSize(72, 22); optBtn:SetPoint("LEFT", resetBtn, "RIGHT", 6, 0)
+  local optBtn = StyleButton(CreateFrame("Button", nil, cA, "UIPanelButtonTemplate"))
+  optBtn:SetSize(88, 26); optBtn:SetPoint("BOTTOMRIGHT", -8, 8)
   optBtn:SetText("Options"); optBtn:SetScript("OnClick", function() SG.ToggleConfig() end)
 
   ------------------------------------------------------------------
   -- Tab B: weekly / lifetime + liquidated chart
   ------------------------------------------------------------------
   local cB = content[2]
-  scopeBtn = CreateFrame("Button", nil, cB, "UIPanelButtonTemplate")
+  scopeBtn = StyleButton(CreateFrame("Button", nil, cB, "UIPanelButtonTemplate"))
   scopeBtn:SetSize(120, 20); scopeBtn:SetPoint("TOPRIGHT", -6, -4)
   scopeBtn:SetScript("OnClick", function() SG.ToggleScope() end)
   scopeBtn:SetScript("OnEnter", function(self)
@@ -560,7 +647,7 @@ function SG.InitUI()
   chartLabel:SetPoint("TOPLEFT", 12, -122)
   chartLabel:SetText("Banked per day (last 7):  |cffffd700coin|r  |cff9d9d9dvendor|r  |cff4d94ffAH|r")
 
-  local chartW, chartH = 364, 188
+  local chartW, chartH = 424, 188
   local chart = CreateFrame("Frame", nil, cB)
   chart:SetSize(chartW, chartH); chart:SetPoint("TOPLEFT", 12, -140)
   bars = {}
@@ -590,7 +677,7 @@ function SG.InitUI()
   cChdr:SetPoint("TOPLEFT", 12, -8)
   cChdr:SetText("Run journal - this character, newest first. Click x to delete.")
 
-  local undoBtn = CreateFrame("Button", nil, cC, "UIPanelButtonTemplate")
+  local undoBtn = StyleButton(CreateFrame("Button", nil, cC, "UIPanelButtonTemplate"))
   undoBtn:SetSize(90, 20); undoBtn:SetPoint("TOPRIGHT", -6, -4)
   undoBtn:SetText("Undo last"); undoBtn:SetScript("OnClick", function() SG.UndoLastRun() end)
 
@@ -620,15 +707,28 @@ function SG.InitUI()
   end
 
   ------------------------------------------------------------------
-  -- Tab D (Gains): where this run's loot goes — vendor pile (top) + AH goods (bottom)
+  -- Tab D (Gains): where this run's loot goes — vendor column (left) + AH column (right),
+  -- each independently scrollable so you never scroll past one pile to reach the other.
   ------------------------------------------------------------------
   local cD = content[4]
-  gV = BuildGoodsSection(cD, -8)      -- "To vendor"    (junk)
-  gA = BuildGoodsSection(cD, -166)    -- "To sell on AH" (mats + auctionable BoEs)
-  local gBtn = CreateFrame("Button", nil, cD, "UIPanelButtonTemplate")
-  gBtn:SetSize(150, 22); gBtn:SetPoint("BOTTOM", 0, 6)
-  gBtn:SetText("Sell vendor items")
-  gBtn:SetScript("OnClick", function() if SG.ShowSellWindow then SG.ShowSellWindow(true) end end)
+  local COLW = 200
+  gV = BuildGoodsColumn(cD, 6,   COLW, "TimeIsMoneyGainsVendorScroll", true)    -- left: junk to vendor
+  gA = BuildGoodsColumn(cD, 228, COLW, "TimeIsMoneyGainsAHScroll",     false)   -- right: mats/BoEs to list
+
+  local gHint = TFS(cD:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "pop")
+  gHint:SetPoint("BOTTOMLEFT", 8, 38); gHint:SetPoint("BOTTOMRIGHT", -8, 38); gHint:SetJustifyH("LEFT")
+  gHint:SetText("Left-click = keep this visit · Right-click = set a rule · Shift-click = link")
+
+  gainsSellBtn = StyleButton(CreateFrame("Button", nil, cD, "UIPanelButtonTemplate"))
+  gainsSellBtn:SetSize(110, 24); gainsSellBtn:SetPoint("BOTTOMRIGHT", -8, 8)
+  gainsSellBtn:SetText("Sell All"); gainsSellBtn:SetScript("OnClick", function() SG.SellAll() end)
+
+  gainsUndoBtn = StyleButton(CreateFrame("Button", nil, cD, "UIPanelButtonTemplate"))
+  gainsUndoBtn:SetSize(90, 24); gainsUndoBtn:SetPoint("RIGHT", gainsSellBtn, "LEFT", -6, 0)
+  gainsUndoBtn:SetText("Undo last"); gainsUndoBtn:SetScript("OnClick", function() SG.SellUndoLast() end)
+
+  gainsSellFS = TFS(cD:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "base")
+  gainsSellFS:SetPoint("BOTTOMLEFT", 10, 14)
 
   -- Live ticking for Tab A timer/GPH
   frame:SetScript("OnUpdate", function(self, elapsed)
@@ -646,6 +746,13 @@ function SG.InitUI()
   if TimeIsMoneyDB and TimeIsMoneyDB.settings and TimeIsMoneyDB.settings.tickerShown then
     BuildTicker(); ticker:Show()
   end
+
+  -- Keep the Gains tab live as bags change (selling, looting, moving items) while it's open.
+  local bagEf = CreateFrame("Frame")
+  bagEf:RegisterEvent("BAG_UPDATE_DELAYED")
+  bagEf:SetScript("OnEvent", function()
+    if frame:IsShown() and activeTab == 4 then RefreshGains() end
+  end)
 
   SelectTab(1)
   ApplyTheme()
@@ -674,7 +781,8 @@ function SG.RefreshUI()
     end
   end
   if timerFS then timerFS:SetText(FmtClock(SG.RunElapsed())) end
-  if runBtn then runBtn:SetText(SG.RunActive() and "Stop Run" or "Start Run") end
+  -- Gold text while a run is live (a "you're recording" cue); reverts to the button's mint when stopped.
+  if runBtn then runBtn:SetText(SG.RunActive() and "|cffffd200Stop Run|r" or "Start Run") end
   if pauseBtn then
     pauseBtn:SetText(SG.RunPaused() and "Resume" or "Pause")
     pauseBtn:SetEnabled(SG.RunActive())
@@ -737,6 +845,32 @@ end
 function SG.Toggle()
   if not frame then SG.InitUI() end
   if frame:IsShown() then frame:Hide() else frame:Show(); if not activeTab then SelectTab(1) end; SG.RefreshUI() end
+end
+
+-- Open the main window straight to the Gains tab (the sell interface). Used by /tim sell
+-- and the merchant auto-open. `manual` prints a note when there's nothing to vendor.
+function SG.OpenSellTab(manual)
+  if not frame then SG.InitUI() end
+  frame:Show(); SelectTab(4); RefreshGains()
+  if manual then
+    local r = SG.ScanSellables and SG.ScanSellables()
+    if r and #r.vendor == 0 then
+      SG.Print("Nothing to vendor right now (no greys, old-expansion BoP, or unsellable BoEs).")
+    end
+  end
+end
+
+-- Merchant open/close hook (called from Sell.lua). Auto-jumps to the Gains tab when there's
+-- a vendor pile and the setting is on; always refreshes so the Sell/Undo buttons re-enable.
+function SG.OnMerchant(open)
+  if open and (not SG.SellWindowEnabled or SG.SellWindowEnabled()) then
+    local r = SG.ScanSellables and SG.ScanSellables()
+    if r and #r.vendor > 0 then
+      if not frame then SG.InitUI() end
+      frame:Show(); SelectTab(4)
+    end
+  end
+  if frame and frame:IsShown() and activeTab == 4 then RefreshGains() end
 end
 
 ----------------------------------------------------------------------
