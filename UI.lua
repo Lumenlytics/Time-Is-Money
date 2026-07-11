@@ -253,7 +253,15 @@ local function FillGoods(sec, list, total, label, emptyMsg)
       if sec.isVendor and SG.SellIsKept and SG.SellIsKept(e) then
         row.val:SetText("|cffff7070keep|r"); row:SetAlpha(0.45)   -- excluded from Sell All this visit
       else
-        row.val:SetText(CoinText(e.value or 0)); row:SetAlpha(1)
+        local shown = CoinText(e.value or 0)
+        -- At the AH, each AH-good "upgrades" from its estimate to the live scanned market
+        -- lowest (shown in gold) as that item's scan lands.
+        if not sec.isVendor and SG.AtAuctionHouse and SG.AtAuctionHouse() then
+          local itemID = tonumber((e.link or ""):match("|Hitem:(%d+):"))
+          local mkt = itemID and SG.AHLowest and SG.AHLowest(itemID)
+          if mkt then shown = "|cffffd200" .. CoinText(mkt) .. "|r" end
+        end
+        row.val:SetText(shown); row:SetAlpha(1)
       end
       row:Show()
     else
@@ -873,6 +881,16 @@ function SG.OnMerchant(open)
   if frame and frame:IsShown() and activeTab == 4 then RefreshGains() end
 end
 
+-- Auction House open/close hook (called from AuctionHouse.lua). Jumps to the Gains tab so you
+-- can see the scanned market prices on the AH column; refreshes as scan results come in.
+function SG.OnAuctionHouse(open)
+  if open then
+    if not frame then SG.InitUI() end
+    frame:Show(); SelectTab(4)
+  end
+  if frame and frame:IsShown() and activeTab == 4 then RefreshGains() end
+end
+
 ----------------------------------------------------------------------
 -- Slash commands
 ----------------------------------------------------------------------
@@ -928,6 +946,10 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     SG.SellPreview()
   elseif cmd == "sell" then
     if SG.ShowSellWindow then SG.ShowSellWindow(true) end
+  elseif cmd == "ahscan" then
+    if not (SG.AtAuctionHouse and SG.AtAuctionHouse()) then
+      SG.Print("Open the Auction House first, then /tim ahscan.")
+    elseif SG.AHScan then SG.AHScan() end
   elseif cmd == "sellwindow" then
     SG.ToggleSellWindow()
   elseif cmd == "sellconfirm" then

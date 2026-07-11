@@ -70,6 +70,8 @@ local DEFAULTS = {
     sellConfirm  = true,        -- confirm before vendoring gear/BoP or a large pile (#14)
     sellSkipGreys = false,      -- leave greys for another trash-seller (e.g. RyrinQoL) (#14)
     sellGearMaxIlvl = 220,      -- auto-vendor old-expansion BoP gear at/below this ilvl; 0 = never (#14)
+    ahAutoScan   = true,        -- scan the lowest AH price for your bag mats when the AH opens (#12)
+    ahUndercut   = 5,           -- percent to undercut the scanned lowest when posting (#5)
     profs     = { skinning = true, mining = true, herbalism = true, tailoring = true, fishing = true, money = true },
   },
 }
@@ -606,10 +608,26 @@ local function ItemDisposition(link)
 end
 SG.ItemDisposition = ItemDisposition
 
+-- Is the item in this exact bag slot soulbound (BoP, or a BoE you've already bound)? Bound
+-- items can't be auctioned, so they must never land in the AH column. bindType from
+-- GetItemInfo describes the item TYPE, not this instance - only C_Item.IsBound knows if THIS
+-- copy is bound. Defaults to "not bound" if the API is unavailable (fail open, don't hide mats).
+local function IsSlotBound(bag, slot)
+  if ItemLocation and ItemLocation.CreateFromBagAndSlot and C_Item and C_Item.IsBound then
+    local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
+    if loc and loc:IsValid() then
+      local ok, bound = pcall(C_Item.IsBound, loc)
+      if ok then return bound and true or false end
+    end
+  end
+  return false
+end
+
 -- Scan all bags and categorize by disposition. Pure data, sells nothing. Shared by the
 -- text preview and the merchant review window. Returns:
 --   vendor = { {bag, slot, link, count, reason, value}, ... }  (the would-vendor pile)
---   auction, keep, unjudgedBoE = counts;  totalVendor = copper
+--   ah = { {bag, slot, link, count, value}, ... }  (auctionable, not bound)
+--   auction, keep, unjudgedBoE = counts;  totalVendor, totalAH = copper
 function SG.ScanSellables()
   local r = { vendor = {}, ah = {}, auction = 0, keep = 0, unjudgedBoE = 0, totalVendor = 0, totalAH = 0 }
   if not (C_Container and C_Container.GetContainerNumSlots) then return r end
@@ -627,9 +645,10 @@ function SG.ScanSellables()
           r.totalVendor = r.totalVendor + (vend or 0) * count
           r.vendor[#r.vendor + 1] = { bag = bag, slot = slot, link = link, count = count, reason = reason, value = (vend or 0) * count }
         else
-          -- The "Gains" AH row: auctionable BoEs, or gathered trade-good mats (classID 7).
+          -- The "Gains" AH row: auctionable BoEs, or gathered trade-good mats (classID 7) -
+          -- but never anything soulbound/BoP (it can't be posted on the AH).
           local isMat = (classID == 7 and (quality or 0) > 0)
-          if disp == "auction" or isMat then
+          if (disp == "auction" or isMat) and not IsSlotBound(bag, slot) then
             local ahEach = (AHValue(link, itemID)) or 0
             r.totalAH = r.totalAH + ahEach * count
             r.ah[#r.ah + 1] = { bag = bag, slot = slot, link = link, count = count, value = ahEach * count }

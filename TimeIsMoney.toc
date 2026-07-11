@@ -3,7 +3,7 @@
 ## Category: Professions
 ## Notes: Tracks the value of everything you gather - skinning, mining, herbalism, tailoring (cloth) - plus looted coin, over time.
 ## Author: You
-## Version: 0.14.0
+## Version: 0.15.0
 ## SavedVariables: TimeIsMoneyDB
 ## OptionalDeps: TradeSkillMaster, Auctionator
 ## IconTexture: Interface\ICONS\INV_Misc_Herb_07
@@ -12,3 +12,4 @@ Core.lua
 UI.lua
 Config.lua
 Sell.lua
+AuctionHouse.lua
