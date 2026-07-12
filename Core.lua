@@ -326,6 +326,26 @@ end
 -- The current character's run list (for the Tab C run manager).
 function SG.GetRuns() return CD().runs end
 
+-- Farm-location intel (#15): fold the run journal down to one row per zone, so you can see
+-- where you actually earn. Returns { {zone, count, net, dur, gph}, ... } sorted by net desc.
+-- gph is aggregate (total net / total time there), the honest "how good is this spot" number.
+function SG.RunLocations()
+  local byZone, order = {}, {}
+  for _, r in ipairs(CD().runs or {}) do
+    local z = (r.zone and r.zone ~= "" and r.zone) or "?"
+    local e = byZone[z]
+    if not e then e = { zone = z, count = 0, net = 0, dur = 0 }; byZone[z] = e; order[#order + 1] = e end
+    e.count = e.count + 1
+    e.net   = e.net + (r.net or 0)
+    e.dur   = e.dur + (r.dur or 0)
+  end
+  for _, e in ipairs(order) do
+    e.gph = (e.dur > 0) and math.floor(e.net / (e.dur / 3600)) or 0
+  end
+  table.sort(order, function(a, b) return a.net > b.net end)
+  return order
+end
+
 -- Undo the most recent saved run on this character.
 function SG.UndoLastRun()
   local runs = CD().runs

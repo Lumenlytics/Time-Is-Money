@@ -6,8 +6,9 @@ local frame, tabs, content, activeTab, ticker
 local timerFS, gphFS, sessFS, coinFS, repairFS, netFS, durFS, breakdownFS, labelEdit, runBtn, pauseBtn, resetBtn
 -- Tab B (Weekly)
 local todayFS, weekFS, allFS, bars, chartLabel, bestRunFS, scopeBtn
--- Tab C (Run journal)
-local journalScroll, journalRows
+-- Tab C (Grounds): run journal + farm-location intel, toggled by journalMode
+local journalScroll, journalRows, journalToggleBtn, journalHdr
+local journalMode = "runs"        -- "runs" | "locations"
 local JROW_H, JMAX = 24, 12
 -- Tab D (Gains): two side-by-side scrollable goods columns — vendor pile + AH goods,
 -- plus a sell footer (this tab IS the #14 sell interface when you're at a merchant)
@@ -153,26 +154,53 @@ function SG.SetTickerScale(n)
   ApplyScale()
 end
 
--- Tab C run-journal list (newest first, per current character).
+-- Tab C list. Two modes: "runs" (journal, newest first, per-run delete) and "locations"
+-- (#15 - runs folded to one row per zone, best earners first, no delete).
 local function RefreshJournal()
   if not journalRows then return end
+  local T = SG.Theme()
+
+  if journalToggleBtn then journalToggleBtn:SetText(journalMode == "runs" and "By location" or "By run") end
+  if journalHdr then
+    journalHdr:SetText(journalMode == "runs"
+      and "Run journal - this character, newest first. Click x to delete."
+      or  "Farm locations - this character, best earners first (net · runs · gold/hour).")
+  end
+
+  if journalMode == "locations" then
+    local locs = (SG.RunLocations and SG.RunLocations()) or {}
+    FauxScrollFrame_Update(journalScroll, #locs, JMAX, JROW_H)
+    local offset = FauxScrollFrame_GetOffset(journalScroll)
+    for i = 1, JMAX do
+      local row, e = journalRows[i], locs[i + offset]
+      row.absIdx = nil; row.del:Hide()
+      if e then
+        row.text:SetText(("|cff%s%s|r   net %s   |cff808080%d run%s · %s/hr|r"):format(
+          T.goldHex, e.zone, SG.Money(e.net or 0), e.count, e.count == 1 and "" or "s", SG.Money(e.gph or 0)))
+        row:Show()
+      else
+        row:Hide()
+      end
+    end
+    return
+  end
+
   local runs = (SG.GetRuns and SG.GetRuns()) or {}
   local total = #runs
   FauxScrollFrame_Update(journalScroll, total, JMAX, JROW_H)
   local offset = FauxScrollFrame_GetOffset(journalScroll)
-  local T = SG.Theme()
   for i = 1, JMAX do
     local row = journalRows[i]
     local absIdx = total - (i + offset - 1)   -- newest first
     local r = runs[absIdx]
     if r and absIdx >= 1 then
-      row.absIdx = absIdx
+      row.absIdx = absIdx; row.del:Show()
       row.text:SetText(("|cff%s%s|r   net %s   |cff808080%s · %s|r"):format(
         T.goldHex, r.label or "Run", SG.Money(r.net or 0),
         (SG.FmtDuration and SG.FmtDuration(r.dur or 0)) or "", (r.zone ~= "" and r.zone) or "?"))
       row:Show()
     else
-      row.absIdx = nil; row:Hide()
+      row.absIdx = nil; row.del:Hide(); row:Hide()
     end
   end
 end
@@ -692,16 +720,27 @@ function SG.InitUI()
   -- Tab C: Run Journal (this character) - list with per-run delete
   ------------------------------------------------------------------
   local cC = content[3]
-  local cChdr = TFS(cC:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
-  cChdr:SetPoint("TOPLEFT", 12, -8)
-  cChdr:SetText("Run journal - this character, newest first. Click x to delete.")
+  journalHdr = TFS(cC:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
+  journalHdr:SetPoint("TOPLEFT", 12, -8); journalHdr:SetPoint("TOPRIGHT", -12, -8); journalHdr:SetJustifyH("LEFT")
+
+  -- Runs <-> Locations toggle (left) and Undo last (right).
+  journalToggleBtn = StyleButton(CreateFrame("Button", nil, cC, "UIPanelButtonTemplate"))
+  journalToggleBtn:SetSize(96, 20); journalToggleBtn:SetPoint("TOPLEFT", 8, -24)
+  journalToggleBtn:SetText("By location")
+  journalToggleBtn:SetScript("OnClick", function()
+    journalMode = (journalMode == "runs") and "locations" or "runs"
+    if FauxScrollFrame_SetOffset then FauxScrollFrame_SetOffset(journalScroll, 0) end   -- reset to top
+    local sb = journalScroll.ScrollBar or _G[(journalScroll:GetName() or "") .. "ScrollBar"]
+    if sb and sb.SetValue then sb:SetValue(0) end
+    RefreshJournal()
+  end)
 
   local undoBtn = StyleButton(CreateFrame("Button", nil, cC, "UIPanelButtonTemplate"))
-  undoBtn:SetSize(90, 20); undoBtn:SetPoint("TOPRIGHT", -6, -4)
+  undoBtn:SetSize(90, 20); undoBtn:SetPoint("TOPRIGHT", -6, -24)
   undoBtn:SetText("Undo last"); undoBtn:SetScript("OnClick", function() SG.UndoLastRun() end)
 
   journalScroll = CreateFrame("ScrollFrame", "TimeIsMoneyJournalScroll", cC, "FauxScrollFrameTemplate")
-  journalScroll:SetPoint("TOPLEFT", 8, -30); journalScroll:SetPoint("BOTTOMRIGHT", -28, 8)
+  journalScroll:SetPoint("TOPLEFT", 8, -48); journalScroll:SetPoint("BOTTOMRIGHT", -28, 8)
   journalScroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, JROW_H, RefreshJournal)
   end)
