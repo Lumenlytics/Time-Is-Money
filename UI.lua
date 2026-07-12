@@ -280,14 +280,36 @@ RefreshGains = function()
   FillGoods(gA, r.ah,     r.totalAH,     "Sell on AH", "Nothing to list.")
 
   if gainsSellFS then
-    local atM = SG.AtMerchant and SG.AtMerchant()
-    local n, total = 0, 0
-    if SG.SellSummary then n, total = SG.SellSummary(r) end
-    gainsSellFS:SetText(("Will sell |cffffffff%d|r for ~|cff8fd694%s|r"):format(n, CoinText(total)))
-    gainsSellBtn:SetEnabled(atM and n > 0)
-    gainsSellBtn:SetText(atM and "Sell All" or "Visit a merchant")
-    local bb = (GetNumBuybackItems and GetNumBuybackItems()) or 0
-    gainsUndoBtn:SetEnabled(atM and bb > 0)
+    local atM  = SG.AtMerchant and SG.AtMerchant()
+    local atAH = SG.AtAuctionHouse and SG.AtAuctionHouse()
+    if atAH then                                   -- AH context: post the AH pile
+      local left = (SG.PostQueueCount and SG.PostQueueCount()) or 0
+      if left > 0 then                             -- mid-batch: throttle paused us, keep clicking
+        gainsSellFS:SetText(("|cffffd200%d listing(s) left|r - click Post again"):format(left))
+        gainsSellBtn:SetText("Post All"); gainsSellBtn:SetEnabled(true)
+      elseif SG.PostArmed and SG.PostArmed() then  -- armed: one more click confirms + posts
+        local n, total = SG.PostSummary()
+        gainsSellFS:SetText(("|cffffd200Click again to post %d for ~%s|r"):format(n, CoinText(total)))
+        gainsSellBtn:SetText("Confirm Post"); gainsSellBtn:SetEnabled(true)
+      else
+        local n, total = 0, 0
+        if SG.PostSummary then n, total = SG.PostSummary() end
+        gainsSellFS:SetText(("Will post |cffffffff%d|r for ~|cffffd200%s|r"):format(n, CoinText(total)))
+        gainsSellBtn:SetText("Post All"); gainsSellBtn:SetEnabled(n > 0)
+      end
+      gainsUndoBtn:SetEnabled(false)
+    elseif atM then                                -- merchant context: sell the vendor pile
+      local n, total = 0, 0
+      if SG.SellSummary then n, total = SG.SellSummary(r) end
+      gainsSellFS:SetText(("Will sell |cffffffff%d|r for ~|cff8fd694%s|r"):format(n, CoinText(total)))
+      gainsSellBtn:SetText("Sell All"); gainsSellBtn:SetEnabled(n > 0)
+      local bb = (GetNumBuybackItems and GetNumBuybackItems()) or 0
+      gainsUndoBtn:SetEnabled(bb > 0)
+    else
+      gainsSellFS:SetText("|cff808080Visit a merchant or the Auction House|r")
+      gainsSellBtn:SetText("Sell / Post"); gainsSellBtn:SetEnabled(false)
+      gainsUndoBtn:SetEnabled(false)
+    end
   end
 end
 
@@ -729,7 +751,11 @@ function SG.InitUI()
 
   gainsSellBtn = StyleButton(CreateFrame("Button", nil, cD, "UIPanelButtonTemplate"))
   gainsSellBtn:SetSize(110, 24); gainsSellBtn:SetPoint("BOTTOMRIGHT", -8, 8)
-  gainsSellBtn:SetText("Sell All"); gainsSellBtn:SetScript("OnClick", function() SG.SellAll() end)
+  gainsSellBtn:SetText("Sell All")
+  gainsSellBtn:SetScript("OnClick", function()
+    if SG.AtAuctionHouse and SG.AtAuctionHouse() then SG.PostAll()
+    elseif SG.AtMerchant and SG.AtMerchant() then SG.SellAll() end
+  end)
 
   gainsUndoBtn = StyleButton(CreateFrame("Button", nil, cD, "UIPanelButtonTemplate"))
   gainsUndoBtn:SetSize(90, 24); gainsUndoBtn:SetPoint("RIGHT", gainsSellBtn, "LEFT", -6, 0)
@@ -950,6 +976,8 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     if not (SG.AtAuctionHouse and SG.AtAuctionHouse()) then
       SG.Print("Open the Auction House first, then /tim ahscan.")
     elseif SG.AHScan then SG.AHScan() end
+  elseif cmd == "post" then
+    if SG.PostAll then SG.PostAll() end
   elseif cmd == "sellwindow" then
     SG.ToggleSellWindow()
   elseif cmd == "sellconfirm" then

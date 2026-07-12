@@ -72,6 +72,7 @@ local DEFAULTS = {
     sellGearMaxIlvl = 220,      -- auto-vendor old-expansion BoP gear at/below this ilvl; 0 = never (#14)
     ahAutoScan   = true,        -- scan the lowest AH price for your bag mats when the AH opens (#12)
     ahUndercut   = 5,           -- percent to undercut the scanned lowest when posting (#5)
+    ahDuration   = 2,           -- posting duration: 1 = 12h, 2 = 24h, 3 = 48h (#5)
     profs     = { skinning = true, mining = true, herbalism = true, tailoring = true, fishing = true, money = true },
   },
 }
