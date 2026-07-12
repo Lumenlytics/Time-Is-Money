@@ -78,22 +78,33 @@ local function PriceSorts()
   return {}
 end
 
--- Read the cheapest listing for an item after its search results arrive.
+-- Read the cheapest listing AND the supply depth (total quantity listed, # of price points)
+-- for an item after its search results arrive. Depth is the #15 "competition" signal.
 local function ReadResult(itemID)
   if not itemID then return end
   local e = lowest[itemID]; if not e then e = {}; lowest[itemID] = e end
-  local got
+  local got, qty, listings = nil, 0, 0
   if e.isComm and AH.GetCommoditySearchResultInfo then
     local ok, info = pcall(AH.GetCommoditySearchResultInfo, itemID, 1)   -- sorted asc: index 1 = cheapest
     if ok and info and info.unitPrice and info.unitPrice > 0 then got = info.unitPrice end
+    local num = (AH.GetNumCommoditySearchResults and AH.GetNumCommoditySearchResults(itemID)) or 0
+    listings = num
+    for i = 1, math.min(num, 100) do                                     -- sum listed quantity (cap 100 rows)
+      local ok2, ri = pcall(AH.GetCommoditySearchResultInfo, itemID, i)
+      if ok2 and ri and ri.quantity then qty = qty + ri.quantity end
+    end
   elseif AH.GetItemSearchResultInfo and AH.MakeItemKey then
-    local ok, info = pcall(AH.GetItemSearchResultInfo, AH.MakeItemKey(itemID), 1)
+    local key = AH.MakeItemKey(itemID)
+    local ok, info = pcall(AH.GetItemSearchResultInfo, key, 1)
     if ok and info then got = info.buyoutAmount or info.bidAmount end
+    listings = (AH.GetNumItemSearchResults and AH.GetNumItemSearchResults(key)) or 0
+    qty = listings
   end
   if got and got > 0 then
     if not e.unit then matched = matched + 1 end
     e.unit, e.t = got, GetTime()
-    if S().debug then SG.Print(("  AH price %s = %s"):format(tostring(itemID), SG.Money(got))) end
+    e.qty, e.listings = qty, listings
+    if S().debug then SG.Print(("  AH %s = %s  (%d listed, %d rows)"):format(tostring(itemID), SG.Money(got), qty, listings)) end
   end
 end
 
@@ -142,7 +153,11 @@ local function StartScan()
   if r and r.ah then
     for _, entry in ipairs(r.ah) do
       local itemID = tonumber((entry.link or ""):match("|Hitem:(%d+):"))
-      if itemID and not seen[itemID] then seen[itemID] = true; queue[#queue + 1] = itemID end
+      if itemID and not seen[itemID] then
+        seen[itemID] = true; queue[#queue + 1] = itemID
+        local e = lowest[itemID]; if not e then e = {}; lowest[itemID] = e end
+        e.link = entry.link                       -- remember the link for the Market view
+      end
     end
   end
   total = #queue
@@ -153,6 +168,19 @@ local function StartScan()
   end
 end
 SG.AHScan = StartScan
+
+-- #15 hot-commodity: the scanned items ranked by "worth farming" = high value, thin supply.
+-- Score = unit price / (quantity listed + 1), so a pricey mat with little competition floats up.
+function SG.AHMarket()
+  local out = {}
+  for itemID, e in pairs(lowest) do
+    if e.unit and e.unit > 0 and e.link then
+      out[#out + 1] = { itemID = itemID, link = e.link, unit = e.unit, qty = e.qty or 0, listings = e.listings or 0 }
+    end
+  end
+  table.sort(out, function(a, b) return (a.unit / (a.qty + 1)) > (b.unit / (b.qty + 1)) end)
+  return out
+end
 
 ----------------------------------------------------------------------
 -- STAGE 2: one-click posting. Undercut the scanned lowest, throttled, with a

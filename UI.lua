@@ -160,11 +160,49 @@ local function RefreshJournal()
   if not journalRows then return end
   local T = SG.Theme()
 
-  if journalToggleBtn then journalToggleBtn:SetText(journalMode == "runs" and "By location" or "By run") end
+  if journalToggleBtn then
+    journalToggleBtn:SetText(journalMode == "runs" and "By location"
+      or journalMode == "locations" and "By market" or "By run")
+  end
   if journalHdr then
-    journalHdr:SetText(journalMode == "runs"
-      and "Run journal - this character, newest first. Click x to delete."
-      or  "Farm locations - this character, best earners first (net · runs · gold/hour).")
+    journalHdr:SetText(
+      journalMode == "runs"      and "Run journal - this character, newest first. Click x to delete."
+      or journalMode == "locations" and "Farm locations - this character, best earners first (net · runs · gold/hour)."
+      or "AH market - your mats by 'worth farming' (value vs supply). Open the AH to refresh.")
+  end
+
+  if journalMode == "market" then
+    local mkt = (SG.AHMarket and SG.AHMarket()) or {}
+    if #mkt == 0 then
+      FauxScrollFrame_Update(journalScroll, 0, JMAX, JROW_H)
+      for i = 1, JMAX do
+        local row = journalRows[i]; row.absIdx = nil; row.del:Hide()
+        if i == 1 then
+          row.text:SetText("|cff808080Open the Auction House - it auto-scans your mats' prices and supply.|r")
+          row:Show()
+        else row:Hide() end
+      end
+      return
+    end
+    FauxScrollFrame_Update(journalScroll, #mkt, JMAX, JROW_H)
+    local offset = FauxScrollFrame_GetOffset(journalScroll)
+    for i = 1, JMAX do
+      local row, e = journalRows[i], mkt[i + offset]
+      row.absIdx = nil; row.del:Hide()
+      if e then
+        local rate
+        if e.qty <= 0      then rate = "|cff808080none listed|r"
+        elseif e.qty < 50  then rate = "|cff40ff40thin|r"
+        elseif e.qty < 500 then rate = "|cffffd200moderate|r"
+        else                    rate = "|cffff7070saturated|r" end
+        row.text:SetText(("%s   |cff%s%s|r   |cff808080%d up · %s|r"):format(
+          e.link, T.goldHex, SG.Money(e.unit), e.qty, rate))
+        row:Show()
+      else
+        row:Hide()
+      end
+    end
+    return
   end
 
   if journalMode == "locations" then
@@ -728,7 +766,8 @@ function SG.InitUI()
   journalToggleBtn:SetSize(96, 20); journalToggleBtn:SetPoint("TOPLEFT", 8, -24)
   journalToggleBtn:SetText("By location")
   journalToggleBtn:SetScript("OnClick", function()
-    journalMode = (journalMode == "runs") and "locations" or "runs"
+    journalMode = (journalMode == "runs" and "locations")
+      or (journalMode == "locations" and "market") or "runs"     -- cycle runs -> locations -> market
     if FauxScrollFrame_SetOffset then FauxScrollFrame_SetOffset(journalScroll, 0) end   -- reset to top
     local sb = journalScroll.ScrollBar or _G[(journalScroll:GetName() or "") .. "ScrollBar"]
     if sb and sb.SetValue then sb:SetValue(0) end
