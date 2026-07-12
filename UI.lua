@@ -7,8 +7,8 @@ local timerFS, gphFS, sessFS, coinFS, repairFS, netFS, durFS, breakdownFS, label
 -- Tab B (Weekly)
 local todayFS, weekFS, allFS, bars, chartLabel, bestRunFS, scopeBtn
 -- Tab C (Grounds): run journal + farm-location intel, toggled by journalMode
-local journalScroll, journalRows, journalToggleBtn, journalHdr
-local journalMode = "runs"        -- "runs" | "locations"
+local journalScroll, journalRows, journalToggleBtn, journalHdr, journalCatBtns
+local journalMode = "runs"        -- "runs" | "locations" | "market"
 local JROW_H, JMAX = 24, 12
 -- Tab D (Gains): two side-by-side scrollable goods columns — vendor pile + AH goods,
 -- plus a sell footer (this tab IS the #14 sell interface when you're at a merchant)
@@ -171,14 +171,27 @@ local function RefreshJournal()
       or "AH market - your mats by 'worth farming' (value vs supply). Open the AH to refresh.")
   end
 
+  -- Category buttons only show in market mode; the active source is disabled (segmented look).
+  if journalCatBtns then
+    local cat = SG.AHBrowseCategory and SG.AHBrowseCategory()
+    for _, b in ipairs(journalCatBtns) do
+      b:SetShown(journalMode == "market")
+      if (b.catKey or false) == (cat or false) then b:Disable() else b:Enable() end
+    end
+  end
+
   if journalMode == "market" then
-    local mkt = (SG.AHMarket and SG.AHMarket()) or {}
+    local cat = SG.AHBrowseCategory and SG.AHBrowseCategory()
+    local mkt = cat and ((SG.AHBrowseResults and SG.AHBrowseResults()) or {})
+                    or  ((SG.AHMarket and SG.AHMarket()) or {})
     if #mkt == 0 then
       FauxScrollFrame_Update(journalScroll, 0, JMAX, JROW_H)
       for i = 1, JMAX do
         local row = journalRows[i]; row.absIdx = nil; row.del:Hide()
         if i == 1 then
-          row.text:SetText("|cff808080Open the Auction House - it auto-scans your mats' prices and supply.|r")
+          row.text:SetText(cat
+            and ("|cff808080Browsing the AH for %s...|r"):format(cat)
+            or  "|cff808080Open the AH (auto-scans your bag mats), or pick a category above to search the market.|r")
           row:Show()
         else row:Hide() end
       end
@@ -188,15 +201,31 @@ local function RefreshJournal()
     local offset = FauxScrollFrame_GetOffset(journalScroll)
     for i = 1, JMAX do
       local row, e = journalRows[i], mkt[i + offset]
-      row.absIdx = nil; row.del:Hide()
+      row.absIdx = nil; row.del:Hide(); row.itemID = e and e.itemID or nil
       if e then
+        local link = e.link
+        if not link then
+          if e.name then                                  -- browse result: name + quality from the AH
+            local c = ITEM_QUALITY_COLORS and ITEM_QUALITY_COLORS[e.quality or 1]
+            if c then
+              link = ("|cff%02x%02x%02x%s|r"):format(
+                math.floor((c.r or 1) * 255 + 0.5), math.floor((c.g or 1) * 255 + 0.5),
+                math.floor((c.b or 1) * 255 + 0.5), e.name)
+            else
+              link = e.name
+            end
+          elseif e.itemID then
+            local n, l = C_Item.GetItemInfo(e.itemID); link = l or n or ("item:" .. e.itemID)
+          end
+        end
+        local price, qty = e.unit or e.minPrice or 0, e.qty or 0
         local rate
-        if e.qty <= 0      then rate = "|cff808080none listed|r"
-        elseif e.qty < 50  then rate = "|cff40ff40thin|r"
-        elseif e.qty < 500 then rate = "|cffffd200moderate|r"
-        else                    rate = "|cffff7070saturated|r" end
+        if qty <= 0      then rate = "|cff808080none listed|r"
+        elseif qty < 50  then rate = "|cff40ff40thin|r"
+        elseif qty < 500 then rate = "|cffffd200moderate|r"
+        else                  rate = "|cffff7070saturated|r" end
         row.text:SetText(("%s   |cff%s%s|r   |cff808080%d up · %s|r"):format(
-          e.link, T.goldHex, SG.Money(e.unit), e.qty, rate))
+          link or "?", T.goldHex, SG.Money(price), qty, rate))
         row:Show()
       else
         row:Hide()
@@ -252,6 +281,41 @@ local function CoinText(copper)
   if copper >= 10000 then return ("%dg"):format(math.floor(copper / 10000)) end
   if copper >= 100   then return ("%ds"):format(math.floor(copper / 100)) end
   return ("%dc"):format(copper)
+end
+
+-- A small "copy this text" popup (addons can't open a browser, so we hand you a selectable URL).
+local copyDlg
+local function ShowCopyLink(text)
+  if not copyDlg then
+    local d = CreateFrame("Frame", "TimeIsMoneyCopyDialog", UIParent, "BackdropTemplate")
+    d:SetSize(430, 98); d:SetPoint("CENTER"); d:SetFrameStrata("FULLSCREEN_DIALOG"); d:SetToplevel(true)
+    d:EnableMouse(true); d:SetMovable(true); d:RegisterForDrag("LeftButton")
+    d:SetScript("OnDragStart", d.StartMoving); d:SetScript("OnDragStop", d.StopMovingOrSizing)
+    d:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+    local T = SG.Theme()
+    d:SetBackdropColor(T.bg[1], T.bg[2], T.bg[3], 0.98)
+    d:SetBackdropBorderColor(T.border[1], T.border[2], T.border[3], 1)
+    d.title = TFS(d:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "accent")
+    d.title:SetPoint("TOP", 0, -12); d.title:SetText("Press Ctrl+C to copy (closes automatically), then paste in your browser")
+    d.edit = CreateFrame("EditBox", nil, d, "BackdropTemplate")
+    d.edit:SetSize(402, 26); d.edit:SetPoint("TOP", 0, -38); d.edit:SetAutoFocus(true)
+    d.edit:SetFontObject(ChatFontNormal); d.edit:SetTextColor(1, 1, 1); d.edit:SetTextInsets(6, 6, 0, 0)
+    d.edit:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
+    d.edit:SetBackdropColor(0, 0, 0, 0.6); d.edit:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+    d.edit:SetScript("OnEscapePressed", function() d:Hide() end)
+    d.edit:SetScript("OnEnterPressed", function() d:Hide() end)
+    -- Auto-close right after Ctrl+C: give the client a moment to put the text on the clipboard.
+    d.edit:SetScript("OnKeyDown", function(self, key)
+      if key == "C" and IsControlKeyDown() then C_Timer.After(0.1, function() if copyDlg then copyDlg:Hide() end end) end
+    end)
+    local close = StyleButton(CreateFrame("Button", nil, d, "UIPanelButtonTemplate"))
+    close:SetSize(80, 22); close:SetPoint("BOTTOM", 0, 10); close:SetText("Close")
+    close:SetScript("OnClick", function() d:Hide() end)
+    d:Hide(); copyDlg = d
+  end
+  copyDlg:Show()
+  copyDlg.edit:SetText(text)
+  copyDlg.edit:SetCursorPosition(0); copyDlg.edit:HighlightText(); copyDlg.edit:SetFocus()
 end
 
 -- Tab D (Gains): build one scrollable goods column — a header + a FauxScrollFrame of item rows.
@@ -778,8 +842,24 @@ function SG.InitUI()
   undoBtn:SetSize(90, 20); undoBtn:SetPoint("TOPRIGHT", -6, -24)
   undoBtn:SetText("Undo last"); undoBtn:SetScript("OnClick", function() SG.UndoLastRun() end)
 
+  -- Category buttons for the Market view (#15): Bags (your held mats) + trade-good categories.
+  journalCatBtns = {}
+  local catDefs = { { key = nil, label = "Bags" } }
+  for _, c in ipairs(SG.AHCategories or {}) do catDefs[#catDefs + 1] = { key = c.key, label = c.label } end
+  local cx = 8
+  for _, c in ipairs(catDefs) do
+    local b = StyleButton(CreateFrame("Button", nil, cC, "UIPanelButtonTemplate"))
+    b:SetSize(64, 18); b:SetPoint("TOPLEFT", cx, -48); b:SetText(c.label); b.catKey = c.key
+    b:SetScript("OnClick", function()
+      if c.key then SG.AHBrowse(c.key) else SG.SetAHBrowseBags() end
+      RefreshJournal()
+    end)
+    journalCatBtns[#journalCatBtns + 1] = b
+    cx = cx + 66
+  end
+
   journalScroll = CreateFrame("ScrollFrame", "TimeIsMoneyJournalScroll", cC, "FauxScrollFrameTemplate")
-  journalScroll:SetPoint("TOPLEFT", 8, -48); journalScroll:SetPoint("BOTTOMRIGHT", -28, 8)
+  journalScroll:SetPoint("TOPLEFT", 8, -72); journalScroll:SetPoint("BOTTOMRIGHT", -28, 8)
   journalScroll:SetScript("OnVerticalScroll", function(self, offset)
     FauxScrollFrame_OnVerticalScroll(self, offset, JROW_H, RefreshJournal)
   end)
@@ -800,6 +880,19 @@ function SG.InitUI()
     row.del:SetScript("OnEnter", function(self) self.x:SetTextColor(1, 0.35, 0.35) end)
     row.del:SetScript("OnLeave", function(self) local T = SG.Theme(); self.x:SetTextColor(T.dim[1], T.dim[2], T.dim[3]) end)
     row.del:SetScript("OnClick", function() if row.absIdx then SG.DeleteRun(row.absIdx) end end)
+    -- Market rows: hover shows the item tooltip, left-click hands you a copyable Wowhead link
+    -- ("where do I farm this?"). Inert in the Runs/Locations views.
+    row:SetScript("OnEnter", function(self)
+      if journalMode == "market" and self.itemID then
+        GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetItemByID(self.itemID); GameTooltip:Show()
+      end
+    end)
+    row:SetScript("OnLeave", GameTooltip_Hide)
+    row:SetScript("OnClick", function(self)
+      if journalMode == "market" and self.itemID then
+        ShowCopyLink("https://www.wowhead.com/item=" .. self.itemID)
+      end
+    end)
     journalRows[i] = row
   end
 

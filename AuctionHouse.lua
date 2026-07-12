@@ -183,6 +183,114 @@ function SG.AHMarket()
 end
 
 ----------------------------------------------------------------------
+-- #15 category market search. One browse query returns a WHOLE trade-good category with each
+-- item's supply (totalQuantity) + min price - so you can spot under-supplied mats you AREN'T
+-- holding. Sorted price-desc so the first page is the valuable items; we rank client-side by
+-- worth-farming = value / supply. Self-contained; no TSM.
+----------------------------------------------------------------------
+local CATEGORIES = {
+  { key = "herbs",   label = "Herbs",   classID = 7, subClassID = 9 },
+  { key = "ore",     label = "Ore",     classID = 7, subClassID = 7 },
+  { key = "leather", label = "Leather", classID = 7, subClassID = 6 },
+  { key = "cloth",   label = "Cloth",   classID = 7, subClassID = 5 },
+  { key = "cooking", label = "Cooking", classID = 7, subClassID = 8 },
+}
+SG.AHCategories = CATEGORIES
+
+local browseResults, browseCategory = {}, nil
+local rawBrowse = {}          -- unfiltered {itemID, name, minPrice, qty} straight from the browse
+local finalizeScheduled = false
+function SG.AHBrowseCategory() return browseCategory end
+function SG.AHBrowseResults() return browseResults end
+function SG.SetAHBrowseBags() browseCategory = nil; if SG.RefreshUI then SG.RefreshUI() end end
+
+function SG.AHBrowse(catKey)
+  if not (AH and atAH and AH.SendBrowseQuery) then SG.Print("Open the Auction House first."); return end
+  local cat
+  for _, c in ipairs(CATEGORIES) do if c.key == catKey then cat = c; break end end
+  if not cat then return end
+  browseCategory = catKey
+  wipe(browseResults); wipe(rawBrowse)
+  local invType = (Enum and Enum.InventoryType and Enum.InventoryType.IndexNonEquipType) or 0
+  local query = {
+    searchString = "", minLevel = 0, maxLevel = 0, filters = {},
+    itemClassFilters = { { classID = cat.classID, subClassID = cat.subClassID, inventoryType = invType } },
+    sorts = {},                                          -- no sort: we fetch the whole category and rank ourselves
+  }
+  local ok, err = pcall(AH.SendBrowseQuery, query)
+  if not ok then SG.Print("Browse failed: " .. tostring(err)); return end
+  SG.Print(("Browsing |cffffd200%s|r on the AH..."):format(cat.label))
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
+-- Rebuild browseResults from rawBrowse: drop greys (quality 0, the troll-listed vendor trash)
+-- and extreme price outliers, then rank by worth-farming = value / supply. Quality needs the
+-- item cached; uncached items are requested and this re-runs on GET_ITEM_INFO_RECEIVED, so the
+-- greys drop out as their data loads. Items whose quality is still unknown are held back (not
+-- shown) so an unfiltered grey never flashes into the list.
+local function FinalizeBrowse()
+  local tmp = {}
+  for _, e in ipairs(rawBrowse) do
+    local quality = select(3, C_Item.GetItemInfo(e.itemID))
+    if quality == nil then
+      if C_Item.RequestLoadItemDataByID then C_Item.RequestLoadItemDataByID(e.itemID) end   -- load, refilter later
+    elseif quality > 0 then                                                                  -- keep non-grey only
+      tmp[#tmp + 1] = { itemID = e.itemID, name = e.name, quality = quality, minPrice = e.minPrice, qty = e.qty }
+    end
+  end
+
+  wipe(browseResults)
+  local median = 0
+  if #tmp > 4 then
+    local prices = {}
+    for _, e in ipairs(tmp) do prices[#prices + 1] = e.minPrice end
+    table.sort(prices)
+    median = prices[math.ceil(#prices / 2)] or 0
+  end
+  local cap = median * 100
+  for _, e in ipairs(tmp) do
+    -- Outlier guard: a price far above the category norm on a thin stack = troll listing.
+    if not (median > 0 and e.minPrice > cap and e.qty < 20) then
+      browseResults[#browseResults + 1] = e
+    end
+  end
+  table.sort(browseResults, function(a, b) return (a.minPrice / (a.qty + 1)) > (b.minPrice / (b.qty + 1)) end)
+  if SG.RefreshUI then SG.RefreshUI() end
+end
+
+-- Fires on AUCTION_HOUSE_BROWSE_RESULTS_UPDATED. Collect the page; if the category has more
+-- pages, fetch them (we want the whole category to rank correctly), else finalize.
+local function ReadBrowse()
+  wipe(rawBrowse)
+  local list = (AH.GetBrowseResults and AH.GetBrowseResults()) or {}
+  for _, br in ipairs(list) do
+    local itemID = br.itemKey and br.itemKey.itemID
+    if itemID and br.minPrice and br.minPrice > 0 then
+      local name
+      if AH.GetItemKeyInfo then
+        local ok, info = pcall(AH.GetItemKeyInfo, br.itemKey)
+        if ok and info then name = info.itemName end
+      end
+      rawBrowse[#rawBrowse + 1] = { itemID = itemID, name = name, minPrice = br.minPrice, qty = br.totalQuantity or 0 }
+    end
+  end
+  if AH.HasFullBrowseResults and not AH.HasFullBrowseResults() and AH.RequestMoreBrowseResults then
+    AH.RequestMoreBrowseResults()      -- another BROWSE_RESULTS_UPDATED will follow
+    return
+  end
+  FinalizeBrowse()
+end
+SG.ReadBrowse = ReadBrowse
+
+-- Re-run the grey/outlier filter as item data loads in (debounced).
+function SG.OnItemInfoReceived()
+  if browseCategory and #rawBrowse > 0 and not finalizeScheduled then
+    finalizeScheduled = true
+    C_Timer.After(0.2, function() finalizeScheduled = false; FinalizeBrowse() end)
+  end
+end
+
+----------------------------------------------------------------------
 -- STAGE 2: one-click posting. Undercut the scanned lowest, throttled, with a
 -- preview + confirm. Never posts an item we have no scanned price for (no blind posts).
 ----------------------------------------------------------------------
@@ -277,13 +385,22 @@ ef:RegisterEvent("AUCTION_HOUSE_CLOSED")
 ef:RegisterEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")
 ef:RegisterEvent("COMMODITY_SEARCH_RESULTS_UPDATED")
 ef:RegisterEvent("ITEM_SEARCH_RESULTS_UPDATED")
+ef:RegisterEvent("AUCTION_HOUSE_BROWSE_RESULTS_UPDATED")
+ef:RegisterEvent("GET_ITEM_INFO_RECEIVED")
 ef:SetScript("OnEvent", function(_, event, arg1)
+  if event == "AUCTION_HOUSE_BROWSE_RESULTS_UPDATED" then
+    ReadBrowse()
+    return
+  elseif event == "GET_ITEM_INFO_RECEIVED" then
+    if SG.OnItemInfoReceived then SG.OnItemInfoReceived() end
+    return
+  end
   if event == "AUCTION_HOUSE_SHOW" then
     atAH = true
     if S().ahAutoScan ~= false then C_Timer.After(0.5, StartScan) end
     if SG.OnAuctionHouse then SG.OnAuctionHouse(true) end
   elseif event == "AUCTION_HOUSE_CLOSED" then
-    atAH, scanning, pending = false, false, nil
+    atAH, scanning, pending, browseCategory = false, false, nil, nil
     wipe(queue)
     if SG.OnAuctionHouse then SG.OnAuctionHouse(false) end
   elseif event == "AUCTION_HOUSE_THROTTLED_SYSTEM_READY" then
