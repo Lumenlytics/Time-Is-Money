@@ -254,12 +254,12 @@ local function FillGoods(sec, list, total, label, emptyMsg)
         row.val:SetText("|cffff7070keep|r"); row:SetAlpha(0.45)   -- excluded from Sell All this visit
       else
         local shown = CoinText(e.value or 0)
-        -- At the AH, each AH-good "upgrades" from its estimate to the live scanned market
-        -- lowest (shown in gold) as that item's scan lands.
+        -- At the AH, each AH-good "upgrades" from its estimate to the recommended POST price
+        -- (the undercut of the live scanned lowest), shown in gold - the number to list at.
         if not sec.isVendor and SG.AtAuctionHouse and SG.AtAuctionHouse() then
           local itemID = tonumber((e.link or ""):match("|Hitem:(%d+):"))
-          local mkt = itemID and SG.AHLowest and SG.AHLowest(itemID)
-          if mkt then shown = "|cffffd200" .. CoinText(mkt) .. "|r" end
+          local post = itemID and SG.AHPostPrice and SG.AHPostPrice(itemID)
+          if post then shown = "|cffffd200" .. CoinText(post) .. "|r" end
         end
         row.val:SetText(shown); row:SetAlpha(1)
       end
@@ -282,21 +282,10 @@ RefreshGains = function()
   if gainsSellFS then
     local atM  = SG.AtMerchant and SG.AtMerchant()
     local atAH = SG.AtAuctionHouse and SG.AtAuctionHouse()
-    if atAH then                                   -- AH context: post the AH pile
-      local left = (SG.PostQueueCount and SG.PostQueueCount()) or 0
-      if left > 0 then                             -- mid-batch: throttle paused us, keep clicking
-        gainsSellFS:SetText(("|cffffd200%d listing(s) left|r - click Post again"):format(left))
-        gainsSellBtn:SetText("Post All"); gainsSellBtn:SetEnabled(true)
-      elseif SG.PostArmed and SG.PostArmed() then  -- armed: one more click confirms + posts
-        local n, total = SG.PostSummary()
-        gainsSellFS:SetText(("|cffffd200Click again to post %d for ~%s|r"):format(n, CoinText(total)))
-        gainsSellBtn:SetText("Confirm Post"); gainsSellBtn:SetEnabled(true)
-      else
-        local n, total = 0, 0
-        if SG.PostSummary then n, total = SG.PostSummary() end
-        gainsSellFS:SetText(("Will post |cffffffff%d|r for ~|cffffd200%s|r"):format(n, CoinText(total)))
-        gainsSellBtn:SetText("Post All"); gainsSellBtn:SetEnabled(n > 0)
-      end
+    if atAH then                                   -- AH context: show post prices (posting is
+      -- blocked by the client, so this is a price helper - list by hand at the gold numbers)
+      gainsSellFS:SetText("|cffffd200Gold = post price|r (undercut) - list these by hand")
+      gainsSellBtn:SetText("Rescan"); gainsSellBtn:SetEnabled(true)
       gainsUndoBtn:SetEnabled(false)
     elseif atM then                                -- merchant context: sell the vendor pile
       local n, total = 0, 0
@@ -753,7 +742,8 @@ function SG.InitUI()
   gainsSellBtn:SetSize(110, 24); gainsSellBtn:SetPoint("BOTTOMRIGHT", -8, 8)
   gainsSellBtn:SetText("Sell All")
   gainsSellBtn:SetScript("OnClick", function()
-    if SG.AtAuctionHouse and SG.AtAuctionHouse() then SG.PostAll()
+    if SG.AtAuctionHouse and SG.AtAuctionHouse() then
+      if SG.AHScan then SG.AHScan() end                 -- posting is blocked by the client; rescan prices
     elseif SG.AtMerchant and SG.AtMerchant() then SG.SellAll() end
   end)
 
@@ -976,8 +966,15 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     if not (SG.AtAuctionHouse and SG.AtAuctionHouse()) then
       SG.Print("Open the Auction House first, then /tim ahscan.")
     elseif SG.AHScan then SG.AHScan() end
-  elseif cmd == "post" then
-    if SG.PostAll then SG.PostAll() end
+  elseif cmd == "undercut" then
+    local n = tonumber(arg)
+    if n and n >= 0 and n <= 90 then
+      TimeIsMoneyDB.settings.ahUndercut = n
+      SG.Print(("AH post price = |cffffd200%d%%|r under the current lowest."):format(n))
+      if SG.RefreshUI then SG.RefreshUI() end
+    else
+      SG.Print(("Usage: /tim undercut <0-90>   (currently %d%% under lowest)"):format(TimeIsMoneyDB.settings.ahUndercut or 5))
+    end
   elseif cmd == "sellwindow" then
     SG.ToggleSellWindow()
   elseif cmd == "sellconfirm" then
