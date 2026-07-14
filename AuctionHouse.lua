@@ -197,6 +197,25 @@ local CATEGORIES = {
 }
 SG.AHCategories = CATEGORIES
 
+-- The market categories the CURRENT character can actually gather, keyed by profession skill-line
+-- ID (locale-independent, unlike profession names). Lets the Market view flag "your" categories,
+-- so a skinner instantly sees Leather is theirs. Herbalism->herbs, Mining->ore, Skinning->leather,
+-- Fishing/Cooking->cooking, Tailoring->cloth.
+local SKILL_TO_CAT = { [182] = "herbs", [186] = "ore", [393] = "leather", [356] = "cooking", [185] = "cooking", [197] = "cloth" }
+function SG.GatherCategories()
+  local cats = {}
+  if not (GetProfessions and GetProfessionInfo) then return cats end
+  local function add(idx)
+    if not idx then return end
+    local skillLine = select(7, GetProfessionInfo(idx))   -- 7th return = skill-line ID
+    local cat = skillLine and SKILL_TO_CAT[skillLine]
+    if cat then cats[cat] = true end
+  end
+  local p1, p2, _, fishing, cooking = GetProfessions()
+  add(p1); add(p2); add(fishing); add(cooking)
+  return cats
+end
+
 local browseResults, browseCategory = {}, nil
 local rawBrowse = {}          -- unfiltered {itemID, name, minPrice, qty} straight from the browse
 local finalizeScheduled = false

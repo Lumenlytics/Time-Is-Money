@@ -168,15 +168,20 @@ local function RefreshJournal()
     journalHdr:SetText(
       journalMode == "runs"      and "Run journal - this character, newest first. Click x to delete."
       or journalMode == "locations" and "Farm locations - this character, best earners first (net · runs · gold/hour)."
-      or "AH market - your mats by 'worth farming' (value vs supply). Open the AH to refresh.")
+      or "AH market - |cffffd200gold buttons are your professions|r. Thin + valuable mats = worth farming.")
   end
 
-  -- Category buttons only show in market mode; the active source is disabled (segmented look).
+  -- Category buttons only show in market mode; the active source is disabled (segmented look);
+  -- categories YOUR character can gather get a gold label (#15 professions-vs-selling).
   if journalCatBtns then
     local cat = SG.AHBrowseCategory and SG.AHBrowseCategory()
+    local gathered = (journalMode == "market" and SG.GatherCategories and SG.GatherCategories()) or {}
     for _, b in ipairs(journalCatBtns) do
       b:SetShown(journalMode == "market")
       if (b.catKey or false) == (cat or false) then b:Disable() else b:Enable() end
+      if b.catLabel then
+        b:SetText((b.catKey and gathered[b.catKey]) and ("|cffffd200" .. b.catLabel .. "|r") or b.catLabel)
+      end
     end
   end
 
@@ -849,7 +854,7 @@ function SG.InitUI()
   local cx = 8
   for _, c in ipairs(catDefs) do
     local b = StyleButton(CreateFrame("Button", nil, cC, "UIPanelButtonTemplate"))
-    b:SetSize(64, 18); b:SetPoint("TOPLEFT", cx, -48); b:SetText(c.label); b.catKey = c.key
+    b:SetSize(64, 18); b:SetPoint("TOPLEFT", cx, -48); b:SetText(c.label); b.catKey = c.key; b.catLabel = c.label
     b:SetScript("OnClick", function()
       if c.key then SG.AHBrowse(c.key) else SG.SetAHBrowseBags() end
       RefreshJournal()
