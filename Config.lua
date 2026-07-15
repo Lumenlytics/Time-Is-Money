@@ -3,14 +3,34 @@ local SG = ns
 
 local cfg
 local refreshers = {}
+local themedTexts = {}   -- {fs, role} - recolored per theme so the panel is readable in light mode
 
 local function S() return TimeIsMoneyDB.settings end
+
+-- Register a fontstring for theming with a role (base/label/dim/accent).
+local function CT(fs, role) if fs then themedTexts[#themedTexts + 1] = { fs = fs, role = role or "base" } end; return fs end
+
+-- Recolor the whole panel (backdrop + every registered text) to the current theme, dropping
+-- font shadows in light mode where they read as fuzz. Runs on open + on theme toggle.
+local function ApplyConfigTheme()
+  if not cfg then return end
+  local T = SG.Theme()
+  cfg:SetBackdropColor(T.bg[1], T.bg[2], T.bg[3], T.bg[4] or 0.96)
+  cfg:SetBackdropBorderColor(T.border[1], T.border[2], T.border[3], 1)
+  local sa = T.shadow and 0.9 or 0
+  local sx, sy = (T.shadow and 1 or 0), (T.shadow and -1 or 0)
+  for _, e in ipairs(themedTexts) do
+    local c = T[e.role] or T.base
+    e.fs:SetTextColor(c[1], c[2], c[3])
+    e.fs:SetShadowColor(0, 0, 0, sa); e.fs:SetShadowOffset(sx, sy)
+  end
+end
 
 local function Label(parent, x, y, text, font)
   local fs = parent:CreateFontString(nil, "OVERLAY", font or "GameFontNormal")
   fs:SetPoint("TOPLEFT", x, y)
   fs:SetText(text)
-  return fs
+  return CT(fs, "label")
 end
 
 -- A small grey help line (plain-language explanation under a control).
@@ -20,7 +40,7 @@ local function Help(parent, x, y, text)
   fs:SetPoint("RIGHT", parent, "RIGHT", -16, 0)
   fs:SetJustifyH("LEFT")
   fs:SetText(text)
-  return fs
+  return CT(fs, "dim")
 end
 
 -- Attach a hover tooltip (title + wrapped body) to any frame.
@@ -66,7 +86,7 @@ local function Checkbox(parent, x, y, label, get, set, tip)
   local c = CreateFrame("CheckButton", nil, parent, "UICheckButtonTemplate")
   c:SetPoint("TOPLEFT", x, y)
   c:SetSize(24, 24)
-  local fs = parent:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+  local fs = CT(parent:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "base")
   fs:SetPoint("LEFT", c, "RIGHT", 2, 0)
   fs:SetText(label)
   c:SetScript("OnClick", function(self)
@@ -85,10 +105,10 @@ local function Slider(parent, x, y, label, lo, hi, step, get, set)
   local low  = s.Low  or _G[nm .. "Low"]
   local high = s.High or _G[nm .. "High"]
   local text = s.Text or _G[nm .. "Text"]
-  if low  then low:SetText(("%.1f"):format(lo)) end
-  if high then high:SetText(("%.1f"):format(hi)) end
-  if text then text:SetText(label) end
-  local val = parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+  if low  then low:SetText(("%.1f"):format(lo)); CT(low, "dim") end
+  if high then high:SetText(("%.1f"):format(hi)); CT(high, "dim") end
+  if text then text:SetText(label); CT(text, "dim") end
+  local val = CT(parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"), "base")
   val:SetPoint("LEFT", s, "RIGHT", 12, 0)
   s:SetScript("OnValueChanged", function(self, v) set(v); val:SetText(("%.2fx"):format(v)) end)
   refreshers[#refreshers + 1] = function() s:SetValue(get()); val:SetText(("%.2fx"):format(get())) end
@@ -97,13 +117,14 @@ end
 
 function SG.RefreshConfig()
   for _, fn in ipairs(refreshers) do fn() end
+  ApplyConfigTheme()
 end
 
 function SG.InitConfig()
   if cfg then return end
 
   cfg = CreateFrame("Frame", "TimeIsMoneyConfigFrame", UIParent, "BackdropTemplate")
-  cfg:SetSize(400, 520)
+  cfg:SetSize(446, 628)
   cfg:SetPoint("CENTER", 60, 0)
   cfg:SetMovable(true)
   cfg:EnableMouse(true)
@@ -121,74 +142,71 @@ function SG.InitConfig()
   cfg:SetBackdropBorderColor(0.20, 0.50, 0.30, 1)
   cfg:Hide()
 
-  local title = cfg:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+  local title = CT(cfg:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), "accent")
   title:SetPoint("TOPLEFT", 14, -12)
-  title:SetText("|cff8fd694Time Is Money|r  Options")
+  title:SetText("Time Is Money  Options")
 
   local close = CreateFrame("Button", nil, cfg, "UIPanelCloseButton")
   close:SetPoint("TOPRIGHT", 2, 2)
 
   local themeBtn = CreateFrame("Button", nil, cfg, "UIPanelButtonTemplate")
   themeBtn:SetSize(96, 20); themeBtn:SetPoint("TOPRIGHT", -30, -9)
-  themeBtn:SetScript("OnClick", function() SG.ToggleTheme() end)
+  themeBtn:SetScript("OnClick", function() SG.CycleTheme() end)
+  themeBtn:SetScript("OnEnter", function(self)
+    GameTooltip:SetOwner(self, "ANCHOR_LEFT")
+    GameTooltip:AddLine("Color theme")
+    GameTooltip:AddLine("Click to cycle: Seafoam, Amethyst, Amber, Crimson, Steel, Class Color.", 0.8, 0.8, 0.8, true)
+    GameTooltip:Show()
+  end)
+  themeBtn:SetScript("OnLeave", GameTooltip_Hide)
   refreshers[#refreshers + 1] = function()
-    themeBtn:SetText("Theme: " .. (S().theme == "light" and "Light" or "Dark"))
+    themeBtn:SetText(S().theme or "Seafoam")
   end
 
-  -- Income sources
-  Label(cfg, 16, -44, "Track income sources", "GameFontHighlight")
-  Checkbox(cfg, 12, -62, "Skinning",
+  -- ===== Track income sources =====
+  Label(cfg, 16, -48, "Track income sources", "GameFontHighlight")
+  Checkbox(cfg, 14,  -72, "Skinning",
     function() return S().profs.skinning end, function(v) S().profs.skinning = v end,
     "Count leather you gather as income.")
-  Checkbox(cfg, 90, -62, "Mining",
+  Checkbox(cfg, 100, -72, "Mining",
     function() return S().profs.mining end, function(v) S().profs.mining = v end,
     "Count ore and stone you gather as income.")
-  Checkbox(cfg, 164, -62, "Herbalism",
+  Checkbox(cfg, 176, -72, "Herbalism",
     function() return S().profs.herbalism end, function(v) S().profs.herbalism = v end,
     "Count herbs you gather as income.")
-  Checkbox(cfg, 250, -62, "Tailoring",
+  Checkbox(cfg, 274, -72, "Tailoring",
     function() return S().profs.tailoring end, function(v) S().profs.tailoring = v end,
-    "Count cloth looted off kills as income (tailoring has no gather cast).")
-  Checkbox(cfg, 330, -62, "Fishing",
+    "Count cloth looted off kills (tailoring has no gather cast).")
+  Checkbox(cfg, 358, -72, "Fishing",
     function() return S().profs.fishing end, function(v) S().profs.fishing = v end,
-    "Count fish you catch as income (loot arrives seconds after the cast).")
-  Checkbox(cfg, 16, -86, "Coin (looted gold)",
+    "Count fish you catch as income.")
+  Checkbox(cfg, 14,  -100, "Coin (looted gold)",
     function() return S().profs.money end, function(v) S().profs.money = v end,
     "Count raw gold you loot from mobs and objects.")
-  Checkbox(cfg, 200, -86, "Auto-start runs",
+  Checkbox(cfg, 200, -100, "Auto-start runs",
     function() return S().autoStartRun end, function(v) S().autoStartRun = v end,
     "Begin a run the moment you gather or loot something - no need to press Start.")
-  Checkbox(cfg, 16, -108, "Count looted drops (greys / BoEs picked up on a run)",
+  Checkbox(cfg, 14,  -128, "Count looted drops (greys / BoEs picked up on a run)",
     function() return S().countDrops end, function(v) S().countDrops = v end,
     "Also value greys, BoEs and other mob drops - not just gathered mats.")
 
-  -- Item pricing
-  Segmented(cfg, 16, -134, "Item pricing", {
+  -- ===== Item pricing =====
+  Segmented(cfg, 16, -168, "Item pricing", {
     { text = "Vendor",       value = "vendor", w = 60, tip = "Always value items at their vendor sell price." },
     { text = "AH if sells",  value = "sells",  w = 84, tip = "Use AH price for mats/things that sell; vendor price for greys and random gear." },
     { text = "AH always",    value = "ah",     w = 78, tip = "Always use the AH price when one is available." },
   }, function() return S().priceMode end, function(v) SG.SetPriceMode(v) end)
 
-  -- Gold/hour smoothing (intent presets + custom minutes)
-  Segmented(cfg, 16, -186, "Gold/hour smoothing", {
-    { text = "World ~8m",    value = 8,  w = 74, tip = "Steady world farming: a short window reacts quickly to your pace." },
-    { text = "Dungeon ~20m", value = 20, w = 82, tip = "Bursty dungeon/raid loot: a longer window smooths the boss-kill spikes." },
-    { text = "5m",  value = 5,  w = 36 },
-    { text = "10m", value = 10, w = 40 },
-    { text = "15m", value = 15, w = 40 },
-  }, function() return S().gphWindow end, function(v) S().gphWindow = v end)
-  Help(cfg, 18, -212, "How far back the Gold/hour average looks. Shorter reacts faster; longer is steadier.")
-
-  -- TSM price source
-  Segmented(cfg, 16, -240, "TSM price source (used only if TSM is installed)", {
+  -- ===== TSM price source =====
+  Segmented(cfg, 16, -234, "TSM price source (only used if TradeSkillMaster is installed)", {
     { text = "Market",     value = "DBMarket",          w = 60 },
     { text = "MinBuyout",  value = "DBMinBuyout",        w = 76 },
     { text = "RegionMkt",  value = "DBRegionMarketAvg",  w = 76 },
     { text = "RegionSale", value = "DBRegionSaleAvg",    w = 76 },
   }, function() return S().tsmSource end, function(v) S().tsmSource = v end)
 
-  -- Minimum value filter
-  Segmented(cfg, 16, -290, "Ignore items worth less than (per item)", {
+  -- ===== Minimum value filter =====
+  Segmented(cfg, 16, -300, "Ignore items worth less than (per item)", {
     { text = "Off", value = 0,      w = 44 },
     { text = "1g",  value = 10000,  w = 40 },
     { text = "5g",  value = 50000,  w = 40 },
@@ -196,35 +214,35 @@ function SG.InitConfig()
     { text = "25g", value = 250000, w = 44 },
   }, function() return S().minValue end, function(v) S().minValue = v end)
 
-  -- Selling (#14) - the merchant workflow toggles, formerly slash-only
-  Label(cfg, 16, -336, "Selling (at a merchant)", "GameFontHighlight")
-  Checkbox(cfg, 12, -354, "Auto-open sell window",
+  -- ===== Selling (at a merchant) =====
+  Label(cfg, 16, -368, "Selling (at a merchant)", "GameFontHighlight")
+  Checkbox(cfg, 14,  -392, "Auto-open sell window",
     function() return S().sellWindow ~= false end, function(v) S().sellWindow = v end,
-    "When you talk to a merchant, pop the sell-review window listing what would be vendored.")
-  Checkbox(cfg, 210, -354, "Confirm big / gear sells",
+    "When you talk to a merchant, jump to the Gains tab listing what would be vendored.")
+  Checkbox(cfg, 210, -392, "Confirm big / gear sells",
     function() return S().sellConfirm ~= false end, function(v) S().sellConfirm = v end,
     "Ask before vendoring gear/BoP or a large pile, so nothing valuable goes by accident.")
-  Checkbox(cfg, 12, -378, "Skip greys (leave for another trash-seller)",
+  Checkbox(cfg, 14,  -418, "Skip greys (leave for another trash-seller)",
     function() return S().sellSkipGreys end, function(v) S().sellSkipGreys = v end,
     "Leave grey (poor) items in your bags for another addon to handle.")
 
-  Segmented(cfg, 16, -404, "Auto-vendor old BoP gear at/below item level", {
+  Segmented(cfg, 16, -454, "Auto-vendor old BoP gear at/below item level", {
     { text = "Never", value = 0,   w = 54, tip = "Never auto-vendor gear." },
     { text = "200",   value = 200, w = 44 },
     { text = "220",   value = 220, w = 44 },
     { text = "250",   value = 250, w = 44 },
     { text = "280",   value = 280, w = 44 },
   }, function() return S().sellGearMaxIlvl or 0 end, function(v) S().sellGearMaxIlvl = v end)
-  Help(cfg, 18, -430, "Vendors old bind-on-pickup gear at or below this item level. Current-expansion gear is never touched.")
+  Help(cfg, 18, -498, "Vendors old bind-on-pickup gear at or below this item level. Current-expansion gear is never touched.")
 
-  -- Floating timer size
-  Label(cfg, 16, -454, "Floating timer size", "GameFontHighlight")
-  Slider(cfg, 24, -476, "smaller  -  larger", 0.6, 2.0, 0.05,
+  -- ===== Floating timer size =====
+  Label(cfg, 16, -536, "Floating timer size", "GameFontHighlight")
+  Slider(cfg, 24, -558, "smaller  -  larger", 0.6, 2.0, 0.05,
     function() return S().tickerScale or 1.0 end,
     function(v) SG.SetTickerScale(v) end)
 
-  local note = cfg:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-  note:SetPoint("BOTTOMLEFT", 16, 12)
+  local note = CT(cfg:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
+  note:SetPoint("BOTTOMLEFT", 16, 10)
   note:SetText("Reopen any time with /tim config")
 
   SG.RefreshConfig()

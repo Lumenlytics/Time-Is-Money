@@ -3,7 +3,7 @@
 ## Category: Professions
 ## Notes: Live single-character farm & gold tracker - real-time gold/hour, per-source valuation, run journal, banked earnings, a vendor/sell workflow, and self-contained Auction House pricing + farm-target intel. No TSM/Auctionator required.
 ## Author: Lumenlytics
-## Version: 0.20.0
+## Version: 0.21.0
 ## SavedVariables: TimeIsMoneyDB
 ## OptionalDeps: TradeSkillMaster, Auctionator
 ## IconTexture: Interface\ICONS\INV_Misc_Herb_07

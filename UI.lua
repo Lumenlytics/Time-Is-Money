@@ -23,32 +23,60 @@ local WIN_W, WIN_H = 460, 420   -- ALL tabs share one size (no jarring resize)
 ----------------------------------------------------------------------
 -- Theme (dark / light)
 ----------------------------------------------------------------------
-local THEMES = {
-  dark = {
-    shadow = true, outline = true,
-    bg = { 0.06, 0.06, 0.07, 0.94 }, border = { 0.20, 0.50, 0.30 },
-    base = { 0.90, 0.90, 0.90 }, label = { 1.00, 0.82, 0.00 }, dim = { 0.55, 0.55, 0.55 }, accent = { 0.56, 0.84, 0.58 },
-    pop = { 1.00, 0.65, 0.20 },   -- warm amber: high-contrast partner to the green, for hints that must pop
-    baseHex = "ffffff", accentHex = "8fd694", goldHex = "ffd200", dimHex = "808080", redHex = "ff7070",
-    tabOn = { 0.20, 0.50, 0.30, 0.85 }, tabOff = { 0.12, 0.12, 0.13, 0.90 }, tabOnText = { 1, 1, 1 }, tabOffText = { 0.7, 0.7, 0.7 },
-    -- Buttons: dark forest green #1B4229 with light mint text #A7D7B4; pressed is a darker green.
-    btn = { 0.11, 0.26, 0.16 }, btnDown = { 0.07, 0.17, 0.10 }, btnDim = { 0.20, 0.26, 0.22 }, btnText = { 0.65, 0.84, 0.71 },
-  },
-  light = {
-    shadow = false, outline = false,
-    bg = { 0.90, 0.88, 0.82, 0.98 }, border = { 0.42, 0.34, 0.18 },
-    base = { 0.13, 0.13, 0.13 }, label = { 0.42, 0.32, 0.05 }, dim = { 0.38, 0.38, 0.38 }, accent = { 0.10, 0.48, 0.24 },
-    pop = { 0.72, 0.30, 0.00 },   -- deep orange: reads on the off-white background, still contrasts the green
-    baseHex = "1c1c1c", accentHex = "1a7a3c", goldHex = "8a5a00", dimHex = "555555", redHex = "a01818",
-    tabOn = { 0.50, 0.40, 0.22, 0.95 }, tabOff = { 0.80, 0.77, 0.70, 0.95 }, tabOnText = { 1, 1, 1 }, tabOffText = { 0.30, 0.30, 0.30 },
-    btn = { 0.11, 0.26, 0.16 }, btnDown = { 0.07, 0.17, 0.10 }, btnDim = { 0.60, 0.64, 0.61 }, btnText = { 0.65, 0.84, 0.71 },
-  },
+-- One shared DARK base (WoW's item quality colors only read well on dark, so we don't do a
+-- light mode); each named theme just swaps the ACCENT family (border / active tab / buttons).
+local BASE = {
+  shadow = true, outline = true,
+  bg = { 0.06, 0.06, 0.07, 0.94 },
+  base = { 0.90, 0.90, 0.90 }, label = { 1.00, 0.82, 0.00 }, dim = { 0.55, 0.55, 0.55 },
+  pop = { 1.00, 0.65, 0.20 },
+  baseHex = "ffffff", goldHex = "ffd200", dimHex = "808080", redHex = "ff7070",
+  tabOff = { 0.12, 0.12, 0.13, 0.90 }, tabOnText = { 1, 1, 1 }, tabOffText = { 0.7, 0.7, 0.7 },
+  btnDim = { 0.20, 0.22, 0.22 }, barVend = { 0.62, 0.62, 0.62 },
 }
+-- Per-theme accent palettes. accent/accentHex = headers & highlights; border = window edge;
+-- tabOn = active tab fill; btn/btnDown/btnText = buttons.
+local THEMES = {
+  Seafoam  = { accent = { 0.56, 0.84, 0.58 }, accentHex = "8fd694", border = { 0.20, 0.50, 0.30 }, tabOn = { 0.20, 0.50, 0.30, 0.85 }, btn = { 0.11, 0.26, 0.16 }, btnDown = { 0.07, 0.17, 0.10 }, btnText = { 0.65, 0.84, 0.71 } },
+  Amethyst = { accent = { 0.78, 0.62, 0.96 }, accentHex = "c79ef5", border = { 0.40, 0.24, 0.60 }, tabOn = { 0.40, 0.20, 0.60, 0.85 }, btn = { 0.30, 0.16, 0.46 }, btnDown = { 0.20, 0.10, 0.32 }, btnText = { 0.86, 0.74, 1.00 } },
+  Amber    = { accent = { 0.96, 0.80, 0.38 }, accentHex = "f5cc61", border = { 0.55, 0.42, 0.16 }, tabOn = { 0.50, 0.38, 0.14, 0.90 }, btn = { 0.42, 0.30, 0.10 }, btnDown = { 0.30, 0.21, 0.06 }, btnText = { 1.00, 0.90, 0.60 } },
+  Crimson  = { accent = { 0.96, 0.52, 0.52 }, accentHex = "f58585", border = { 0.55, 0.20, 0.20 }, tabOn = { 0.50, 0.18, 0.18, 0.90 }, btn = { 0.40, 0.14, 0.14 }, btnDown = { 0.28, 0.09, 0.09 }, btnText = { 1.00, 0.78, 0.78 } },
+  Steel    = { accent = { 0.58, 0.74, 0.96 }, accentHex = "94bcf5", border = { 0.24, 0.38, 0.58 }, tabOn = { 0.20, 0.34, 0.55, 0.90 }, btn = { 0.14, 0.24, 0.40 }, btnDown = { 0.09, 0.17, 0.29 }, btnText = { 0.78, 0.88, 1.00 } },
+}
+local THEME_ORDER = { "Seafoam", "Amethyst", "Amber", "Crimson", "Steel", "Class Color" }
+function SG.ThemeList() return THEME_ORDER end
 
-function SG.Theme()
-  local t = TimeIsMoneyDB and TimeIsMoneyDB.settings and TimeIsMoneyDB.settings.theme
-  return THEMES[t == "light" and "light" or "dark"]
+-- "Class Color" is computed from the player's class (guarded per the Secret-Value rules).
+local function classColorTheme()
+  local ok, _, class = pcall(UnitClass, "player")
+  if not ok or not class then return nil end
+  if issecretvalue and issecretvalue(class) then return nil end
+  local c = (C_ClassColor and C_ClassColor.GetClassColor and C_ClassColor.GetClassColor(class))
+            or (RAID_CLASS_COLORS and RAID_CLASS_COLORS[class])
+  if not c then return nil end
+  local function lite(x) return x + (1 - x) * 0.35 end
+  return {
+    accent = { lite(c.r), lite(c.g), lite(c.b) }, accentHex = c.GenerateHexColor and c:GenerateHexColor():sub(3) or "ffffff",
+    border = { c.r * 0.55, c.g * 0.55, c.b * 0.55 }, tabOn = { c.r * 0.55, c.g * 0.55, c.b * 0.55, 0.9 },
+    btn = { c.r * 0.32, c.g * 0.32, c.b * 0.32 }, btnDown = { c.r * 0.20, c.g * 0.20, c.b * 0.20 }, btnText = { lite(c.r), lite(c.g), lite(c.b) },
+  }
 end
+
+local resolved   -- cached merged theme (BASE + chosen accent); rebuilt on theme change
+local function resolveTheme()
+  local s = TimeIsMoneyDB and TimeIsMoneyDB.settings
+  local name = (s and s.theme) or "Seafoam"
+  if name ~= "Class Color" and not THEMES[name] then      -- normalize legacy "dark"/"light" -> Seafoam
+    name = "Seafoam"; if s then s.theme = name end
+  end
+  local t = (name == "Class Color" and classColorTheme()) or THEMES[name] or THEMES.Seafoam
+  local out = {}
+  for k, v in pairs(BASE) do out[k] = v end
+  for k, v in pairs(t) do out[k] = v end
+  resolved = out
+end
+
+function SG.Theme() if not resolved then resolveTheme() end; return resolved end
 
 -- Register a FontString for theming with a role: "base" | "label" | "dim" | "accent" | "pop".
 local themedFS = {}
@@ -116,17 +144,39 @@ local function ApplyTheme()
     end
   end
   for _, b in ipairs(themedBtns) do ColorButton(b, T) end
+  if bars and T.barVend then                        -- weekly chart: darken the vendor bar for light mode
+    for i = 1, #bars do
+      if bars[i].vend then bars[i].vend:SetColorTexture(T.barVend[1], T.barVend[2], T.barVend[3], 0.95) end
+    end
+    if chartLabel then                              -- keep the legend swatches matching + readable
+      local v = T.barVend
+      local vHex = ("%02x%02x%02x"):format(math.floor(v[1] * 255 + 0.5), math.floor(v[2] * 255 + 0.5), math.floor(v[3] * 255 + 0.5))
+      chartLabel:SetText(("Banked per day (last 7):  |cff%scoin|r  |cff%svendor|r  |cff4d94ffAH|r"):format(T.goldHex, vHex))
+    end
+  end
   if SG.RefreshUI then SG.RefreshUI() end
+  if SG.RefreshConfig then SG.RefreshConfig() end   -- recolor the Options panel too, if it exists
 end
 SG.ApplyTheme = ApplyTheme
 
-function SG.ToggleTheme()
-  local s = TimeIsMoneyDB.settings
-  s.theme = (s.theme == "light") and "dark" or "light"
+-- Set a theme by name (falls back to Seafoam if unknown).
+function SG.SetTheme(name)
+  local ok = (name == "Class Color")
+  for _, n in ipairs(THEME_ORDER) do if n == name then ok = true end end
+  TimeIsMoneyDB.settings.theme = ok and name or "Seafoam"
+  resolveTheme()
   ApplyTheme()
-  if SG.RefreshConfig then SG.RefreshConfig() end
-  SG.Print("Theme = |cff8fd694" .. s.theme .. "|r")
+  SG.Print("Theme = |cff" .. (SG.Theme().accentHex or "ffffff") .. (TimeIsMoneyDB.settings.theme) .. "|r")
 end
+
+-- Cycle to the next theme (used by the Options button and /tim theme).
+function SG.CycleTheme()
+  local cur = TimeIsMoneyDB.settings.theme or "Seafoam"
+  local i = 1
+  for n, name in ipairs(THEME_ORDER) do if name == cur then i = n end end
+  SG.SetTheme(THEME_ORDER[(i % #THEME_ORDER) + 1])
+end
+SG.ToggleTheme = SG.CycleTheme   -- back-compat alias
 
 -- Scale: the main panel and the floating widget size independently.
 local function ApplyScale()
@@ -1109,7 +1159,16 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
   elseif cmd == "scope" then
     SG.ToggleScope()
   elseif cmd == "theme" then
-    SG.ToggleTheme()
+    if arg and arg ~= "" then
+      -- match a theme name case-insensitively (e.g. /tim theme amber, /tim theme class color)
+      local want = arg:lower()
+      local pick
+      for _, n in ipairs(SG.ThemeList()) do if n:lower() == want then pick = n end end
+      if pick then SG.SetTheme(pick)
+      else SG.Print("Themes: " .. table.concat(SG.ThemeList(), ", ")) end
+    else
+      SG.CycleTheme()
+    end
   elseif cmd == "scale" then
     SG.SetUIScale(arg)
   elseif cmd == "labelprompt" then

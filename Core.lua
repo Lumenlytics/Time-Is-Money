@@ -52,7 +52,7 @@ local DEFAULTS = {
   itemRules = {},  -- [itemID] = "ah" | "vendor" | "exclude" (account-wide - rules apply to all chars)
   zoneLabels = {}, -- zone -> last label used there (account-wide; pre-fills the stop-run popup)
   settings = {
-    theme     = "dark",         -- "dark" | "light" panel theme
+    theme     = "Seafoam",      -- named accent palette: Seafoam/Amethyst/Amber/Crimson/Steel/Class Color
     uiScale   = 1.0,            -- main window scale (0.6 - 1.6)
     tickerScale = 1.0,          -- floating timer widget scale (0.6 - 2.0)
     viewScope = "char",         -- "char" (this character only) | "account" (all characters) (#per-char)
@@ -1100,7 +1100,9 @@ function SG.SessionGPH()
   if not s.active then return s.finalGPH or 0 end   -- run stopped: show the frozen final rate, don't let the rolling window decay
   if s.paused then return s.liveGPH or 0 end         -- paused: hold the rate as of the pause, don't decay while idle
   local now, ev = GetTime(), s.events
-  local window = (settings and settings.gphWindow or 10) * 60
+  -- Auto-smoothing: dungeon/raid loot is bursty (dumps at boss kills) so use a longer window
+  -- there; open-world farming is steady, so react faster. No user setting needed.
+  local window = (IsInInstance() and 20 or 8) * 60
 
   -- drop events older than the window (oldest sit at the front)
   while ev[1] and (now - ev[1].t) > window do
