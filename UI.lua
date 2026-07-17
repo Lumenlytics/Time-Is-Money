@@ -163,7 +163,7 @@ SG.ApplyTheme = ApplyTheme
 function SG.SetTheme(name)
   local ok = (name == "Class Color")
   for _, n in ipairs(THEME_ORDER) do if n == name then ok = true end end
-  TimeIsMoneyDB.settings.theme = ok and name or "Seafoam"
+  SG.SetCharOpt("theme", ok and name or "Seafoam")   -- per-character
   resolveTheme()
   ApplyTheme()
   SG.Print("Theme = |cff" .. (SG.Theme().accentHex or "ffffff") .. (TimeIsMoneyDB.settings.theme) .. "|r")

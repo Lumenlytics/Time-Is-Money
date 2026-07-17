@@ -69,7 +69,7 @@ local DEFAULTS = {
     sellWindow   = true,        -- auto-open the sell-review window at a merchant (#14)
     sellConfirm  = true,        -- confirm before vendoring gear/BoP or a large pile (#14)
     sellSkipGreys = false,      -- leave greys for another trash-seller (e.g. RyrinQoL) (#14)
-    sellGearMaxIlvl = 220,      -- auto-vendor old-expansion BoP gear at/below this ilvl; 0 = never (#14)
+    sellGearMaxIlvl = 237,      -- auto-vendor old BoP gear at/below this ilvl (a gear-tier floor); 0 = never (#14)
     ahAutoScan   = true,        -- scan the lowest AH price for your bag mats when the AH opens (#12)
     ahUndercut   = 5,           -- percent to undercut the scanned lowest when posting (#5)
     ahDuration   = 2,           -- posting duration: 1 = 12h, 2 = 24h, 3 = 48h (#5)
@@ -143,6 +143,33 @@ local function CD(key)
   return c
 end
 SG.CD = CD
+
+-- Per-character settings (#per-char): a skinner warrior and a herbalist mage want different
+-- tracked professions, gear-sell floors, even themes. These live in this character's ledger
+-- under .opts and are overlaid onto the live `settings` table at login, so every existing
+-- settings.X read/write resolves to the current character. Everything else stays account-wide.
+local PER_CHAR_SCALARS = { "theme", "sellGearMaxIlvl" }
+local function LoadCharOpts()
+  local c = CD()
+  c.opts = c.opts or {}
+  local o = c.opts
+  if o.profs == nil then                      -- first time on this char: seed from current settings
+    o.profs = {}
+    for k, v in pairs(settings.profs or {}) do o.profs[k] = v end
+  else
+    for k, v in pairs(settings.profs or {}) do if o.profs[k] == nil then o.profs[k] = v end end
+  end
+  for _, key in ipairs(PER_CHAR_SCALARS) do if o[key] == nil then o[key] = settings[key] end end
+  settings.profs = o.profs                    -- table reference: Config toggles write straight to the char
+  for _, key in ipairs(PER_CHAR_SCALARS) do settings[key] = o[key] end
+end
+SG.LoadCharOpts = LoadCharOpts
+
+-- Set a per-character setting: update the live value AND persist it to this char's opts.
+function SG.SetCharOpt(key, value)
+  if settings then settings[key] = value end
+  local c = CD(); c.opts = c.opts or {}; c.opts[key] = value
+end
 
 -- Character keys in the current view scope: just the current char, or all of them.
 local function ScopeKeys()
@@ -727,13 +754,29 @@ end
 -- Item-level floor for auto-vendoring old BoP gear. 0 = never auto-vendor gear (default,
 -- safe: gear is always kept unless you right-click it). Gear is never sold on the expansion
 -- tag alone because that tag is unreliable for current items.
+-- Gear upgrade tiers for the "auto-vendor old gear" floor. Front-end = tier NAME, back-end =
+-- an item-level number (each tier's floor is the item-level CAP of the tier below it, so picking
+-- "Myth" keeps Myth-track gear and vendors Hero-and-below). Per character.
+--
+--   !!!! UPDATE EACH SEASON !!!!  These item levels shift every WoW season.
+--   Midnight SEASON 1 caps (source: wowhead.com/guide/midnight/item-level-gear-upgrades-dawncrests):
+--     Adventurer 237 · Veteran 250 · Champion 263 · Hero 276 · Myth 289.
+--   (Season 2 reportedly raises the cap to ~337 - bump the floors below when the season turns.)
+SG.GEAR_TIERS = {
+  { label = "Never",    floor = 0 },     -- keep all gear
+  { label = "Veteran",  floor = 237 },   -- keep Veteran & up; vendor below it (<= Adventurer cap)
+  { label = "Champion", floor = 250 },   -- keep Champion & up; vendor below it (<= Veteran cap)
+  { label = "Hero",     floor = 263 },   -- keep Hero & up;     vendor below it (<= Champion cap)
+  { label = "Myth",     floor = 276 },   -- keep Myth & up;     vendor below it (<= Hero cap)
+}
+
 function SG.SetSellGearIlvl(arg)
   local n = tonumber(arg)
   if not n then
     Print(("Auto-vendor old BoP gear at/below ilvl: |cffffd200%d|r  (0 = never; e.g. /tim sellilvl 450)"):format(settings.sellGearMaxIlvl or 0))
     return
   end
-  settings.sellGearMaxIlvl = math.max(0, math.floor(n))
+  SG.SetCharOpt("sellGearMaxIlvl", math.max(0, math.floor(n)))   -- per-character
   if settings.sellGearMaxIlvl == 0 then
     Print("BoP gear auto-vendor |cff808080OFF|r - gear is always kept (right-click an item to vendor specific pieces).")
   else
@@ -1366,8 +1409,12 @@ f:SetScript("OnEvent", function(_, event, ...)
       -- One-time: adopt the 220 gear floor for DBs that predate the setting (saved as 0,
       -- which MergeDefaults can't overwrite). Runs once; after this the user can set 0.
       if not TimeIsMoneyDB.didGearFloorMigration then
-        if (settings.sellGearMaxIlvl or 0) == 0 then settings.sellGearMaxIlvl = 220 end
+        if (settings.sellGearMaxIlvl or 0) == 0 then settings.sellGearMaxIlvl = 237 end
         TimeIsMoneyDB.didGearFloorMigration = true
+      end
+      if not TimeIsMoneyDB.didTierMigration then    -- old raw 220 default -> the Veteran tier (237)
+        if settings.sellGearMaxIlvl == 220 then settings.sellGearMaxIlvl = 237 end
+        TimeIsMoneyDB.didTierMigration = true
       end
     end
 
@@ -1376,6 +1423,7 @@ f:SetScript("OnEvent", function(_, event, ...)
     lastMoney = GetMoney()
     MigrateOldData()    -- legacy GatherGold/SkinnerGold import (into current char)
     MigrateToChars()    -- one-time: move old account-wide ledger into this character
+    LoadCharOpts()      -- overlay this character's own profs / theme / gear floor
     if SG.InitUI then SG.InitUI() end
     if SG.RefreshUI then SG.RefreshUI() end
 

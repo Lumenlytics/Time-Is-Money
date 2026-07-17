@@ -164,7 +164,7 @@ function SG.InitConfig()
   end
 
   -- ===== Track income sources =====
-  Label(cfg, 16, -48, "Track income sources", "GameFontHighlight")
+  Label(cfg, 16, -48, "Track income sources  |cff808080(per character)|r", "GameFontHighlight")
   Checkbox(cfg, 14,  -72, "Skinning",
     function() return S().profs.skinning end, function(v) S().profs.skinning = v end,
     "Count leather you gather as income.")
@@ -226,14 +226,17 @@ function SG.InitConfig()
     function() return S().sellSkipGreys end, function(v) S().sellSkipGreys = v end,
     "Leave grey (poor) items in your bags for another addon to handle.")
 
-  Segmented(cfg, 16, -454, "Auto-vendor old BoP gear at/below item level", {
-    { text = "Never", value = 0,   w = 54, tip = "Never auto-vendor gear." },
-    { text = "200",   value = 200, w = 44 },
-    { text = "220",   value = 220, w = 44 },
-    { text = "250",   value = 250, w = 44 },
-    { text = "280",   value = 280, w = 44 },
-  }, function() return S().sellGearMaxIlvl or 0 end, function(v) S().sellGearMaxIlvl = v end)
-  Help(cfg, 18, -498, "Vendors old bind-on-pickup gear at or below this item level. Current-expansion gear is never touched.")
+  local gearOpts = {}
+  for _, t in ipairs(SG.GEAR_TIERS or {}) do
+    gearOpts[#gearOpts + 1] = {
+      text = t.label, value = t.floor, w = (t.floor == 0 and 54 or 66),
+      tip = (t.floor == 0) and "Never auto-vendor gear."
+            or ("Keep " .. t.label .. "-track gear and better; vendor anything below it (item level " .. t.floor .. " and under)."),
+    }
+  end
+  Segmented(cfg, 16, -454, "Auto-vendor BoP gear below upgrade tier (keeps that tier and up)", gearOpts,
+    function() return S().sellGearMaxIlvl or 0 end, function(v) SG.SetCharOpt("sellGearMaxIlvl", v) end)
+  Help(cfg, 18, -498, "Per character. Vendors old bind-on-pickup gear below the chosen tier. Tier item levels are for the current season - hover a button for the number.")
 
   -- ===== Floating timer size =====
   Label(cfg, 16, -536, "Floating timer size", "GameFontHighlight")
