@@ -18,6 +18,13 @@ local GAINS_ROWS, GAINS_RH = 12, 22
 -- Tab labels: Grind (current run) · Gold (earnings history) · Grounds (farm
 -- locations/journal) · Gains (what this run gave you + where it goes: vendor / AH).
 local TABS = { "Grind", "Gold", "Grounds", "Gains" }
+-- One-line "what is this tab", shown on hover (same index as TABS).
+local TAB_TIPS = {
+  "Your live run - timer, gold/hour, and what you've earned this session (net of repairs).",
+  "Gold you've actually banked - looted coin, vendor sales and AH mail, by day / week / all-time.",
+  "Your run history, your best-earning zones, and live Auction House market intel.",
+  "Where this run's loot goes - junk to vendor, mats to post on the Auction House.",
+}
 local WIN_W, WIN_H = 460, 420   -- ALL tabs share one size (no jarring resize)
 
 ----------------------------------------------------------------------
@@ -739,6 +746,13 @@ function SG.InitUI()
     fs:SetFont(STANDARD_TEXT_FONT, 14, "OUTLINE")   -- bold + larger so the tab labels read clearly
     t.bg, t.fs = bg, fs
     t:SetScript("OnClick", function() SelectTab(i) end)
+    t:SetScript("OnEnter", function(self)
+      GameTooltip:SetOwner(self, "ANCHOR_TOP")   -- above the tab, clear of the cursor (like the Grind buttons)
+      GameTooltip:AddLine(TABS[i])
+      GameTooltip:AddLine(TAB_TIPS[i], 0.8, 0.8, 0.8, true)
+      GameTooltip:Show()
+    end)
+    t:SetScript("OnLeave", GameTooltip_Hide)
     tabs[i] = t
   end
 
