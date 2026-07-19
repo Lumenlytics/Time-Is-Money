@@ -1,0 +1,8 @@
+# Build / tooling artifacts
+luac.out
+*.tmp
+*.bak
+
+# OS
+.DS_Store
+Thumbs.db

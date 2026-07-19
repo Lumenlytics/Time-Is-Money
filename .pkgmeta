@@ -1,0 +1,15 @@
+package-as: TimeIsMoney
+
+# Dependency-free: TSM / Auctionator are optional runtime price sources, never embedded.
+enable-nolib-creation: no
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+# Keep dev-only docs and tooling out of the published zip (README ships - it's the user guide).
+ignore:
+  - .gitignore
+  - .pkgmeta
+  - STATUS.md
+  - ROADMAP.md

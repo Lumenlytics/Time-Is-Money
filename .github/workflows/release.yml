@@ -1,0 +1,30 @@
+name: Package and release
+
+# Tagging a version (e.g. v1.0.0) builds the zip from .pkgmeta and uploads it
+# to CurseForge, plus attaches it to a GitHub release.
+on:
+  push:
+    tags:
+      - "**"
+
+permissions:
+  contents: write   # allow the packager to create the mirror GitHub release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Package and release
+        uses: BigWigsMods/packager@v2
+        env:
+          # Add these in the repo: Settings > Secrets and variables > Actions.
+          # CF_API_KEY is required for CurseForge uploads; the others are optional.
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+          # WOWI_API_TOKEN: ${{ secrets.WOWI_API_TOKEN }}
+          # WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
