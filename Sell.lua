@@ -60,6 +60,7 @@ local function SellList(list)
     local e = list[i]
     if not e then
       SG.Print(("Sold |cffffffff%d|r item(s) for ~%s.  |cff808080(/tim selllog to review; Undo last on the Gains tab)|r"):format(sold, SG.Money(gold)))
+      if sold > 0 and SG.PlayEventSound then SG.PlayEventSound("sell") end
       if SG.RefreshUI then SG.RefreshUI() end
       return
     end

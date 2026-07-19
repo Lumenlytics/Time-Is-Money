@@ -124,7 +124,7 @@ function SG.InitConfig()
   if cfg then return end
 
   cfg = CreateFrame("Frame", "TimeIsMoneyConfigFrame", UIParent, "BackdropTemplate")
-  cfg:SetSize(446, 628)
+  cfg:SetSize(446, 708)
   cfg:SetPoint("CENTER", 60, 0)
   cfg:SetMovable(true)
   cfg:EnableMouse(true)
@@ -238,9 +238,26 @@ function SG.InitConfig()
     function() return S().sellGearMaxIlvl or 0 end, function(v) SG.SetCharOpt("sellGearMaxIlvl", v) end)
   Help(cfg, 18, -498, "Per character. Vendors old bind-on-pickup gear below the chosen tier. Tier item levels are for the current season - hover a button for the number.")
 
+  -- ===== Sounds =====
+  Label(cfg, 16, -538, "Sounds", "GameFontHighlight")
+  Checkbox(cfg, 14, -562, "Enabled",
+    function() local c = SG.SoundCfg and SG.SoundCfg(); return c and c.master end,
+    function(v) local c = SG.SoundCfg and SG.SoundCfg(); if c then c.master = v end end,
+    "Master switch for all Time Is Money sounds (played on the SFX channel).")
+  local sx = 116
+  for _, e in ipairs(SG.SoundEvents or {}) do
+    local key = e.key
+    Checkbox(cfg, sx, -562, e.label,
+      function() local c = SG.SoundCfg and SG.SoundCfg(); return c and c.events[key] and c.events[key].on end,
+      function(v) local c = SG.SoundCfg and SG.SoundCfg(); if c and c.events[key] then c.events[key].on = v end end,
+      "Play a cue on " .. e.label:lower() .. ". Pick your own sound with /tim sound.")
+    sx = sx + 108
+  end
+  Help(cfg, 18, -586, "Hunt a sound with /tim sound <id>, then assign it: /tim sound set runstart <id>")
+
   -- ===== Floating timer size =====
-  Label(cfg, 16, -536, "Floating timer size", "GameFontHighlight")
-  Slider(cfg, 24, -558, "smaller  -  larger", 0.6, 2.0, 0.05,
+  Label(cfg, 16, -616, "Floating timer size", "GameFontHighlight")
+  Slider(cfg, 24, -638, "smaller  -  larger", 0.6, 2.0, 0.05,
     function() return S().tickerScale or 1.0 end,
     function(v) SG.SetTickerScale(v) end)
 

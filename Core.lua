@@ -252,6 +252,7 @@ local function StartRun(auto)
   wipe(SG.session.events)
   Print(auto and "Run started automatically. Stop any time with /tim run."
               or  "Run started.")
+  if SG.PlayEventSound then SG.PlayEventSound("runStart") end
   if SG.RefreshUI then SG.RefreshUI() end
 end
 
@@ -266,6 +267,7 @@ local function StopRun()
   local net     = total - repairs
   local gph     = net / (math.max(dur, GPH_FLOOR) / 3600)
   SG.session.finalGPH = gph          -- freeze: the panel shows this until the next run, no decay
+  if SG.PlayEventSound then SG.PlayEventSound("runStop") end
 
   local SEP = "  |cff5a5a5a·|r  "   -- subtle gray middot between fields
   if repairs > 0 then

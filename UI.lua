@@ -1211,6 +1211,8 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     SG.SellPreview()
   elseif cmd == "sell" then
     if SG.ShowSellWindow then SG.ShowSellWindow(true) end
+  elseif cmd == "sound" then
+    if SG.SoundCommand then SG.SoundCommand(arg) end
   elseif cmd == "ahscan" then
     if not (SG.AtAuctionHouse and SG.AtAuctionHouse()) then
       SG.Print("Open the Auction House first, then /tim ahscan.")
