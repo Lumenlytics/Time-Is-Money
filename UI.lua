@@ -7,7 +7,7 @@ local timerFS, gphFS, sessFS, coinFS, repairFS, netFS, durFS, breakdownFS, label
 -- Tab B (Weekly)
 local todayFS, weekFS, allFS, bars, chartLabel, bestRunFS, scopeBtn
 -- Tab C (Grounds): run journal + farm-location intel, toggled by journalMode
-local journalScroll, journalRows, journalToggleBtn, journalHdr, journalCatBtns
+local journalScroll, journalRows, journalModeBtns, journalHdr, journalCatBtns
 local journalMode = "runs"        -- "runs" | "locations" | "market"
 local JROW_H, JMAX = 24, 12
 -- Tab D (Gains): two side-by-side scrollable goods columns — vendor pile + AH goods,
@@ -217,9 +217,10 @@ local function RefreshJournal()
   if not journalRows then return end
   local T = SG.Theme()
 
-  if journalToggleBtn then
-    journalToggleBtn:SetText(journalMode == "runs" and "By location"
-      or journalMode == "locations" and "By market" or "By run")
+  if journalModeBtns then                       -- highlight (disable) the active view, like the tabs
+    for _, b in ipairs(journalModeBtns) do
+      if b.mode == journalMode then b:Disable() else b:Enable() end
+    end
   end
   if journalHdr then
     journalHdr:SetText(
@@ -894,18 +895,24 @@ function SG.InitUI()
   journalHdr = TFS(cC:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
   journalHdr:SetPoint("TOPLEFT", 12, -8); journalHdr:SetPoint("TOPRIGHT", -12, -8); journalHdr:SetJustifyH("LEFT")
 
-  -- Runs <-> Locations toggle (left) and Undo last (right).
-  journalToggleBtn = StyleButton(CreateFrame("Button", nil, cC, "UIPanelButtonTemplate"))
-  journalToggleBtn:SetSize(96, 20); journalToggleBtn:SetPoint("TOPLEFT", 8, -24)
-  journalToggleBtn:SetText("By location")
-  journalToggleBtn:SetScript("OnClick", function()
-    journalMode = (journalMode == "runs" and "locations")
-      or (journalMode == "locations" and "market") or "runs"     -- cycle runs -> locations -> market
-    if FauxScrollFrame_SetOffset then FauxScrollFrame_SetOffset(journalScroll, 0) end   -- reset to top
-    local sb = journalScroll.ScrollBar or _G[(journalScroll:GetName() or "") .. "ScrollBar"]
-    if sb and sb.SetValue then sb:SetValue(0) end
-    RefreshJournal()
-  end)
+  -- View switcher (left): three buttons, the active one highlighted (disabled) so you always
+  -- see which view you're on. Undo last (right).
+  journalModeBtns = {}
+  local MODES = { { m = "runs", label = "Runs" }, { m = "locations", label = "Locations" }, { m = "market", label = "Market" } }
+  local mx = 8
+  for _, d in ipairs(MODES) do
+    local b = StyleButton(CreateFrame("Button", nil, cC, "UIPanelButtonTemplate"))
+    b:SetSize(74, 20); b:SetPoint("TOPLEFT", mx, -24); b:SetText(d.label); b.mode = d.m
+    b:SetScript("OnClick", function()
+      journalMode = d.m
+      if FauxScrollFrame_SetOffset then FauxScrollFrame_SetOffset(journalScroll, 0) end   -- reset to top
+      local sb = journalScroll.ScrollBar or _G[(journalScroll:GetName() or "") .. "ScrollBar"]
+      if sb and sb.SetValue then sb:SetValue(0) end
+      RefreshJournal()
+    end)
+    journalModeBtns[#journalModeBtns + 1] = b
+    mx = mx + 78
+  end
 
   local undoBtn = StyleButton(CreateFrame("Button", nil, cC, "UIPanelButtonTemplate"))
   undoBtn:SetSize(90, 20); undoBtn:SetPoint("TOPRIGHT", -6, -24)

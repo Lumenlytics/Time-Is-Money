@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1
+
+- **Grounds tab:** the Runs / Locations / Market views are now a three-button switcher with
+  the active view highlighted, instead of a single button that cycled and labelled itself with
+  the *next* view (which made it easy to lose track of which view you were on).
+
 ## 1.0.0
 
 First public release. A live farm & gold tracker for WoW Retail (Midnight) — real-time
