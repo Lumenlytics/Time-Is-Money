@@ -407,7 +407,12 @@ local function BuildGoodsColumn(parent, x, w, scrollName, isVendor)
     row.val:SetPoint("RIGHT", -4, 0); row.val:SetFont(STANDARD_TEXT_FONT, 11); row.val:SetJustifyH("RIGHT")
 
     row:SetScript("OnEnter", function(self)
-      if self.e then GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetHyperlink(self.e.link); GameTooltip:Show() end
+      if not self.e then return end
+      GameTooltip:SetOwner(self, "ANCHOR_RIGHT"); GameTooltip:SetHyperlink(self.e.link)
+      if self.postEach then   -- the per-item price to type when posting this commodity on the AH
+        GameTooltip:AddLine(("Post at |cffffd200%s|r each"):format(SG.Money(self.postEach)), 1, 1, 1)
+      end
+      GameTooltip:Show()
     end)
     row:SetScript("OnLeave", GameTooltip_Hide)
     row:SetScript("OnClick", function(self, button)
@@ -444,12 +449,17 @@ local function FillGoods(sec, list, total, label, emptyMsg)
         row.val:SetText("|cffff7070keep|r"); row:SetAlpha(0.45)   -- excluded from Sell All this visit
       else
         local shown = CoinText(e.value or 0)
-        -- At the AH, each AH-good "upgrades" from its estimate to the recommended POST price
-        -- (the undercut of the live scanned lowest), shown in gold - the number to list at.
+        -- At the AH, "upgrade" the estimate to the live market value. Show the STACK total
+        -- (post price x count), same as off-AH, so the number doesn't appear to shrink; the
+        -- per-item price you actually type when posting goes in the row tooltip (OnEnter).
+        row.postEach = nil
         if not sec.isVendor and SG.AtAuctionHouse and SG.AtAuctionHouse() then
           local itemID = tonumber((e.link or ""):match("|Hitem:(%d+):"))
           local post = itemID and SG.AHPostPrice and SG.AHPostPrice(itemID)
-          if post then shown = "|cffffd200" .. CoinText(post) .. "|r" end
+          if post then
+            row.postEach = post
+            shown = "|cffffd200" .. CoinText(post * (e.count or 1)) .. "|r"
+          end
         end
         row.val:SetText(shown); row:SetAlpha(1)
       end
@@ -466,8 +476,19 @@ RefreshGains = function()
   if not gV then return end
   local r = SG.ScanSellables and SG.ScanSellables()
   if not r then return end
-  FillGoods(gV, r.vendor, r.totalVendor, "Vendor",     "Nothing to vendor.")
-  FillGoods(gA, r.ah,     r.totalAH,     "Sell on AH", "Nothing to list.")
+  FillGoods(gV, r.vendor, r.totalVendor, "Vendor", "Nothing to vendor.")
+  -- At the AH the rows show live market STACK totals (post x count); sum the same for the
+  -- header so it matches, instead of the off-AH estimate total.
+  local ahTotal = r.totalAH
+  if SG.AtAuctionHouse and SG.AtAuctionHouse() then
+    ahTotal = 0
+    for _, e in ipairs(r.ah) do
+      local itemID = tonumber((e.link or ""):match("|Hitem:(%d+):"))
+      local post = itemID and SG.AHPostPrice and SG.AHPostPrice(itemID)
+      ahTotal = ahTotal + (post and post * (e.count or 1) or (e.value or 0))
+    end
+  end
+  FillGoods(gA, r.ah, ahTotal, "Sell on AH", "Nothing to list.")
 
   if gainsSellFS then
     local atM  = SG.AtMerchant and SG.AtMerchant()

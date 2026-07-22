@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.3
+
+- **Gains "Sell on AH":** the value now shows the **stack total** both away from and at the
+  Auction House, so it no longer appears to shrink when you arrive at the AH (it was switching
+  from stack-total to per-item). The per-item price you type when posting is now in the row's
+  hover tooltip ("Post at X each").
+- **Fix:** an item marked *Never sell (always keep)* now correctly drops out of the AH column
+  (it was staying listed for trade goods).
+
 ## 1.0.2
 
 - **Gains tab:** the stack count now shows first (`x24 Item name`) so it's never cut off when

@@ -695,10 +695,12 @@ function SG.ScanSellables()
           r.totalVendor = r.totalVendor + (vend or 0) * count
           r.vendor[#r.vendor + 1] = { bag = bag, slot = slot, link = link, count = count, reason = reason, value = (vend or 0) * count }
         else
-          -- The "Gains" AH row: auctionable BoEs, or gathered trade-good mats (classID 7) -
-          -- but never anything soulbound/BoP (it can't be posted on the AH).
+          -- The "Gains" AH row: auctionable BoEs, or gathered trade-good mats (classID 7) - but
+          -- never anything soulbound/BoP (can't be auctioned) nor an item you've marked "never
+          -- sell / always keep" (the exclude rule), which must stay out of both piles.
+          local rule = itemID and TimeIsMoneyDB.itemRules and TimeIsMoneyDB.itemRules[itemID]
           local isMat = (classID == 7 and (quality or 0) > 0)
-          if (disp == "auction" or isMat) and not IsSlotBound(bag, slot) then
+          if (disp == "auction" or isMat) and rule ~= "exclude" and not IsSlotBound(bag, slot) then
             local ahEach = (AHValue(link, itemID)) or 0
             r.totalAH = r.totalAH + ahEach * count
             r.ah[#r.ah + 1] = { bag = bag, slot = slot, link = link, count = count, value = ahEach * count }
