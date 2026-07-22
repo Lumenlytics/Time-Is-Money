@@ -7,7 +7,7 @@ local timerFS, gphFS, sessFS, coinFS, repairFS, netFS, durFS, breakdownFS, label
 -- Tab B (Weekly)
 local todayFS, weekFS, allFS, bars, chartLabel, bestRunFS, scopeBtn
 -- Tab C (Grounds): run journal + farm-location intel, toggled by journalMode
-local journalScroll, journalRows, journalModeBtns, journalHdr, journalCatBtns
+local journalScroll, journalRows, journalModeDD, journalHdr, journalCatBtns
 local journalMode = "runs"        -- "runs" | "locations" | "market"
 local JROW_H, JMAX = 24, 12
 -- Tab D (Gains): two side-by-side scrollable goods columns — vendor pile + AH goods,
@@ -217,11 +217,7 @@ local function RefreshJournal()
   if not journalRows then return end
   local T = SG.Theme()
 
-  if journalModeBtns then                       -- highlight (disable) the active view, like the tabs
-    for _, b in ipairs(journalModeBtns) do
-      if b.mode == journalMode then b:Disable() else b:Enable() end
-    end
-  end
+  if journalModeDD and journalModeDD.GenerateMenu then journalModeDD:GenerateMenu() end   -- reflect current view
   if journalHdr then
     journalHdr:SetText(
       journalMode == "runs"      and "Run journal - this character, newest first. Click x to delete."
@@ -440,9 +436,10 @@ local function FillGoods(sec, list, total, label, emptyMsg)
     local row, e = sec.rows[i], list[i + offset]
     row.e = e
     if e then
-      local cnt = (e.count or 1) > 1 and ("|cff808080 x%d|r"):format(e.count) or ""
+      -- Count first (right after the icon) so it never gets cut off when a long name truncates.
+      local cnt = (e.count or 1) > 1 and ("|cff808080x%d|r "):format(e.count) or ""
       row.icon:SetTexture(select(10, C_Item.GetItemInfo(e.link)) or 134400)
-      row.text:SetText((e.link or "?") .. cnt)
+      row.text:SetText(cnt .. (e.link or "?"))
       if sec.isVendor and SG.SellIsKept and SG.SellIsKept(e) then
         row.val:SetText("|cffff7070keep|r"); row:SetAlpha(0.45)   -- excluded from Sell All this visit
       else
@@ -895,24 +892,21 @@ function SG.InitUI()
   journalHdr = TFS(cC:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
   journalHdr:SetPoint("TOPLEFT", 12, -8); journalHdr:SetPoint("TOPRIGHT", -12, -8); journalHdr:SetJustifyH("LEFT")
 
-  -- View switcher (left): three buttons, the active one highlighted (disabled) so you always
-  -- see which view you're on. Undo last (right).
-  journalModeBtns = {}
+  -- View switcher (left): a dropdown of Runs / Locations / Market. Undo last (right).
   local MODES = { { m = "runs", label = "Runs" }, { m = "locations", label = "Locations" }, { m = "market", label = "Market" } }
-  local mx = 8
-  for _, d in ipairs(MODES) do
-    local b = StyleButton(CreateFrame("Button", nil, cC, "UIPanelButtonTemplate"))
-    b:SetSize(74, 20); b:SetPoint("TOPLEFT", mx, -24); b:SetText(d.label); b.mode = d.m
-    b:SetScript("OnClick", function()
-      journalMode = d.m
-      if FauxScrollFrame_SetOffset then FauxScrollFrame_SetOffset(journalScroll, 0) end   -- reset to top
-      local sb = journalScroll.ScrollBar or _G[(journalScroll:GetName() or "") .. "ScrollBar"]
-      if sb and sb.SetValue then sb:SetValue(0) end
-      RefreshJournal()
-    end)
-    journalModeBtns[#journalModeBtns + 1] = b
-    mx = mx + 78
-  end
+  journalModeDD = CreateFrame("DropdownButton", nil, cC, "WowStyle1DropdownTemplate")
+  journalModeDD:SetPoint("TOPLEFT", 8, -22); journalModeDD:SetWidth(130)
+  journalModeDD:SetupMenu(function(_, root)
+    for _, d in ipairs(MODES) do
+      root:CreateRadio(d.label, function() return journalMode == d.m end, function()
+        journalMode = d.m
+        if FauxScrollFrame_SetOffset then FauxScrollFrame_SetOffset(journalScroll, 0) end   -- reset to top
+        local sb = journalScroll.ScrollBar or _G[(journalScroll:GetName() or "") .. "ScrollBar"]
+        if sb and sb.SetValue then sb:SetValue(0) end
+        RefreshJournal()
+      end)
+    end
+  end)
 
   local undoBtn = StyleButton(CreateFrame("Button", nil, cC, "UIPanelButtonTemplate"))
   undoBtn:SetSize(90, 20); undoBtn:SetPoint("TOPRIGHT", -6, -24)

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- **Gains tab:** the stack count now shows first (`x24 Item name`) so it's never cut off when
+  a long item name truncates.
+- **Grounds tab:** the Runs / Locations / Market switcher is now a dropdown.
+
 ## 1.0.1
 
 - **Grounds tab:** the Runs / Locations / Market views are now a three-button switcher with
