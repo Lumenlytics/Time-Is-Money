@@ -86,8 +86,8 @@ local lastGatherAt = 0
 local lastGatherProf
 local settings
 local warnedNoSource = false
-local atMerchant, lastRepairCost, lastMissing = false, 0, 0   -- repair tracking (#6 net profit)
-local atMailbox = false   -- true while the mailbox is open (AH-sale income capture)
+local atMerchant, lastMissing = false, 0        -- repair tracking (#6 net profit)
+local recentLootCoin, recentLootAt = 0, 0       -- looted coin pending reconcile vs PLAYER_MONEY
 local lastMoney   -- wallet snapshot; used to detect vendor-sale + AH-sale income (liquidated)
 
 ----------------------------------------------------------------------
@@ -561,11 +561,6 @@ end
 ----------------------------------------------------------------------
 -- Sell workflow (#14): disposition engine + non-destructive preview
 ----------------------------------------------------------------------
--- Current expansion id. NOTE: expansionID is UNRELIABLE for "is this current" - some
--- current items report an older expac. So gear is never auto-sold on this tag alone; it's
--- only a secondary gate behind the item-level floor (see the BoP-gear branch).
-local CURRENT_EXPANSION = _G.LE_EXPANSION_LEVEL_CURRENT or 99
-
 -- Do we have a real AH price for this item (TSM market or Auctionator)? If so it's listable.
 local function HasAHPrice(link, itemID)
   if TSM_API and TSM_API.ToItemString then
@@ -615,7 +610,7 @@ end
 local function ItemDisposition(link)
   if not link then return "keep", "empty slot" end
   local itemID = tonumber(link:match("|Hitem:(%d+):"))
-  local _, _, quality, ilvl, _, _, _, _, equipLoc, _, vendor, classID, _, bindType, expacID = C_Item.GetItemInfo(link)
+  local _, _, quality, ilvl, _, _, _, _, equipLoc, _, vendor, classID, _, bindType = C_Item.GetItemInfo(link)
   if quality == nil then return "keep", "not cached yet" end
   vendor = vendor or 0
 
@@ -908,6 +903,8 @@ end
 
 local function RecordMoney(copper)
   if not copper or copper <= 0 then return end
+  recentLootCoin = recentLootCoin + copper   -- so a following PLAYER_MONEY delta doesn't re-book it
+  recentLootAt   = GetTime()
 
   local cd = CD()
   local today = Today()
@@ -949,10 +946,9 @@ local function RecordSale(copper)
   if SG.RefreshUI then SG.RefreshUI() end
 end
 
--- Realized AH-sale gold -> the daily "ahSold" bucket (money received at the mailbox). Like
--- vendor sales, kept out of the estimate totals; feeds liquidated. Captured via PLAYER_MONEY
--- positive delta while the mailbox is open (see events) - simple + robust; for a farmer nearly
--- all mailbox income is auction gold. (Precise "Auction successful" subject-matching later.)
+-- Realized AH-sale gold -> the daily "ahSold" bucket. Kept out of the estimate totals; feeds
+-- liquidated. Captured ONLY from auction-sale mail (a "seller" invoice), so gold from friends,
+-- quest mail or COD refunds is never miscounted as an auction sale (see the TakeInboxMoney hook).
 local function RecordAHSale(copper)
   if not copper or copper <= 0 then return end
   local cd = CD()
@@ -1001,6 +997,7 @@ local function IsCountableDrop(link, itemID)
   return true
 end
 
+local OTHER_GATHER = { mining = true, herbalism = true, skinning = true, tailoring = true }
 local function OnLoot(msg)
   local link, qty = msg:match(PAT_MULTI)
   if not link then link = msg:match(PAT_SINGLE); qty = 1 end
@@ -1012,7 +1009,15 @@ local function OnLoot(msg)
   -- Fishing loot arrives seconds after the cast (you cast, wait for a bite, then loot),
   -- so it needs a much longer attribution window than instant gathers.
   local window = (lastGatherProf == "fishing") and 30 or (settings.window or 2.0)
-  if lastGatherProf and (GetTime() - lastGatherAt) <= window then
+  -- A mat that clearly belongs to ANOTHER gathering profession (ore/herb/leather/cloth) is
+  -- credited to that profession, not to a lingering gather cast - so ore looted during the long
+  -- fishing window goes to Mining, not Fishing. (Fish have no distinct subclass, so they still
+  -- fall to the cast window below.)
+  if lastGatherProf and (GetTime() - lastGatherAt) <= window
+     and matProf and matProf ~= lastGatherProf and OTHER_GATHER[matProf]
+     and settings.profs and settings.profs[matProf] then
+    prof = matProf
+  elseif lastGatherProf and (GetTime() - lastGatherAt) <= window then
     -- A gather (skinning/mining/herbalism/fishing) just happened; this loot belongs to it.
     prof = lastGatherProf
   elseif matProf and settings.profs and settings.profs[matProf] then
@@ -1377,8 +1382,6 @@ f:RegisterEvent("CHAT_MSG_MONEY")
 f:RegisterEvent("PLAYER_MONEY")
 f:RegisterEvent("MERCHANT_SHOW")
 f:RegisterEvent("MERCHANT_CLOSED")
-f:RegisterEvent("MAIL_SHOW")
-f:RegisterEvent("MAIL_CLOSED")
 f:RegisterEvent("UPDATE_INVENTORY_DURABILITY")
 
 -- Book repair spending: keep the live repair cost while at a merchant, then record
@@ -1398,9 +1401,24 @@ if type(RepairAllItems) == "function" then
       local paid = before - GetMoney()                       -- personal gold actually spent
       if paid > 0 then
         RecordRepair(paid * runShare)
-        SG.session.startMissing = 0                           -- baseline reset only on a real repair
+        -- Reset the wear baseline only if the repair actually restored durability. A partial
+        -- repair (couldn't afford it all) leaves wear, so keep the baseline or the next repair
+        -- would charge the run for the leftover pre-existing wear too.
+        if MissingDurability() <= 0 then SG.session.startMissing = 0 end
       end
     end)
+  end)
+end
+
+-- Realized AH-sale gold: capture ONLY auction "seller" invoices when their coin is taken from
+-- the mail, so friend gold / quest mail / COD refunds are never miscounted as auction income.
+if type(TakeInboxMoney) == "function" and GetInboxInvoiceInfo and GetInboxHeaderInfo then
+  hooksecurefunc("TakeInboxMoney", function(index)
+    local invoiceType = GetInboxInvoiceInfo(index)
+    if invoiceType == "seller" then
+      local money = select(5, GetInboxHeaderInfo(index))     -- coin attached to this mail
+      if money and money > 0 then RecordAHSale(money) end
+    end
   end)
 end
 
@@ -1459,35 +1477,27 @@ f:SetScript("OnEvent", function(_, event, ...)
     local now = GetMoney()
     if lastMoney ~= nil then
       local delta = now - lastMoney
-      -- Positive change tells us realized income, categorized by WHERE it happened:
-      --   at a merchant -> vendor sale;  at the mailbox -> AH sale.
-      -- Looted coin fires in the field (neither flag) via CHAT_MSG_MONEY, so no double
-      -- count. Negative deltas (repairs/purchases/buyback/postage) are ignored here.
+      -- A positive wallet change at a merchant is a vendor sale - EXCEPT any coin you just
+      -- looted (already counted via CHAT_MSG_MONEY), which we subtract so it isn't booked twice.
+      -- AH sales are captured precisely from mail invoices, not here. Negative deltas ignored.
       if delta > 0 then
-        if atMerchant then RecordSale(delta)
-        elseif atMailbox then RecordAHSale(delta) end
+        if recentLootCoin > 0 and (GetTime() - recentLootAt) < 3 then
+          local used = math.min(recentLootCoin, delta)
+          recentLootCoin, delta = recentLootCoin - used, delta - used
+        end
+        if delta > 0 and atMerchant then RecordSale(delta) end
       end
     end
     lastMoney = now
 
   elseif event == "MERCHANT_SHOW" then
     atMerchant = true
-    lastRepairCost = (GetRepairAllCost and GetRepairAllCost()) or 0
     lastMissing = MissingDurability()
 
   elseif event == "MERCHANT_CLOSED" then
     atMerchant = false
 
-  elseif event == "MAIL_SHOW" then
-    atMailbox = true
-
-  elseif event == "MAIL_CLOSED" then
-    atMailbox = false
-
   elseif event == "UPDATE_INVENTORY_DURABILITY" then
-    if atMerchant then
-      lastRepairCost = (GetRepairAllCost and GetRepairAllCost()) or 0
-      lastMissing = MissingDurability()
-    end
+    if atMerchant then lastMissing = MissingDurability() end
   end
 end)

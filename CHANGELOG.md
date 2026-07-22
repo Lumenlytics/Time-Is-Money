@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.0.4
+
+### Fixes
+- **Coin no longer double-counts:** gold looted while a merchant is open is no longer also
+  booked as a vendor sale.
+- **Auction House income is precise:** only actual auction-sale mail counts as AH income (via a
+  mail-invoice check), so gold from friends, quest mail or COD refunds is never miscounted.
+- **Fishing:** ore / herb / leather / cloth looted during the (long) fishing window is credited
+  to its own profession, not to Fishing.
+- **Repairs:** the wear baseline resets only on a full repair, so a partial repair no longer
+  over-charges the next one.
+- The sell/price (Gains) tab now auto-opens at a merchant when you have **mats to sell**, not
+  only when you have junk to vendor.
+
+### Additions & polish
+- **`/tim help`** prints the full command list in-game.
+- The **Auction House undercut %** is now in the Options window (was slash-only).
+- The Gains tab no longer rescans your bags when it isn't the visible tab (performance).
+- TSM price-source options got explanations; assorted wording/label tidy-ups.
+
+### Internal
+- Removed a large block of disabled Auction House posting code and other dead leftovers.
+
 ## 1.0.3
 
 - **Gains "Sell on AH":** the value now shows the **stack total** both away from and at the

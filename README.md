@@ -49,14 +49,18 @@ tracked from loot only (vendor/repair/mail don't count). Banked totals count onl
 
 ## Useful commands  (`/tim` or `/timeismoney`)
 - `/tim` — show / hide the window
-- `/tim run` · `/tim pause` — start/stop · pause the run
-- `/tim ticker` — toggle the floating timer
+*(In-game, `/tim help` prints this list.)*
+
+- `/tim run` · `/tim pause` — start/stop · pause the run · `/tim ticker` — floating timer
 - `/tim runs` · `/tim delrun <#>` · `/tim undorun` — run journal
-- `/tim scope` — this character ⇄ account · `/tim theme` — light/dark · `/tim scale <n>` — window size
-- `/tim sell` — open the sell/AH tab · `/tim sellilvl <n>` — auto-vendor old gear at/below item level
-- `/tim pricing vendor|sells|ah` — pricing mode · `/tim ah|vendor|exclude` (+shift-click) — per-item rules
-- `/tim ahscan` — rescan AH prices · `/tim undercut <n>` — set AH undercut %
+- `/tim scope` — this character ⇄ account · `/tim theme [name]` — color theme · `/tim scale <n>` — window size
+- `/tim sell` — open the sell/AH (Gains) tab · `/tim sellilvl <n>` — gear-sell floor (item level)
+- `/tim pricing vendor|sells|ah` — pricing mode · `/tim ah|vendor|exclude` (+shift-click) — per-item rules · `/tim rules` · `/tim clearrule`
+- `/tim ahscan` — rescan AH prices · `/tim undercut <0-90>` — AH undercut %
+- `/tim drops` — count looted drops · `/tim selllog` — recent sales · `/tim sound` — sound options
 - `/tim config` — options · `/tim reset` — clear this character's data
+
+Color themes: **Seafoam · Amethyst · Amber · Crimson · Steel · Class Color** (cycle with `/tim theme` or the button in Options — no more light/dark).
 
 ---
 

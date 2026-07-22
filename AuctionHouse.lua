@@ -309,95 +309,11 @@ function SG.OnItemInfoReceived()
   end
 end
 
-----------------------------------------------------------------------
--- STAGE 2: one-click posting. Undercut the scanned lowest, throttled, with a
--- preview + confirm. Never posts an item we have no scanned price for (no blind posts).
-----------------------------------------------------------------------
-
-local function PostDuration()
-  local d = S().ahDuration
-  return (d == 1 or d == 2 or d == 3) and d or 2    -- 1 = 12h, 2 = 24h, 3 = 48h
-end
-
--- Postable AH-goods that have a scanned price, each with its computed (undercut) post price.
-local function BuildPostList()
-  local list = {}
-  local r = SG.ScanSellables and SG.ScanSellables()
-  if not (r and r.ah) then return list end
-  for _, e in ipairs(r.ah) do
-    local itemID = tonumber((e.link or ""):match("|Hitem:(%d+):"))
-    local price = itemID and SG.AHPostPrice(itemID)
-    if price and price > 0 then
-      local le = lowest[itemID]
-      list[#list + 1] = { bag = e.bag, slot = e.slot, link = e.link, count = e.count,
-                          itemID = itemID, unit = price, isComm = le and le.isComm }
-    end
-  end
-  return list
-end
-
--- Count + total gold of what Post All would list right now (for the footer readout).
-function SG.PostSummary()
-  local list = BuildPostList()
-  local t = 0
-  for _, x in ipairs(list) do t = t + x.unit * x.count end
-  return #list, t
-end
-
--- The pending post queue - persists across clicks so you can drain it a burst at a time.
-local postQueue = {}
-function SG.PostQueueCount() return #postQueue end
-
--- Post as many queued items as allowed. MUST run inside a hardware event (a real button
--- click): PostCommodity/PostItem are protected and blocked if called from a timer/callback.
--- So there is NO C_Timer here - we loop synchronously, stopping if the message system throttles.
-local function DoPostBatch()
-  local posted, gold, failed, firstErr = 0, 0, 0, nil
-  while #postQueue > 0 do
-    if not atAH then break end
-    if AH.IsThrottledMessageSystemReady and not AH.IsThrottledMessageSystemReady() then break end
-    local x = table.remove(postQueue, 1)
-    if C_Container.GetContainerItemLink(x.bag, x.slot) == x.link then
-      local loc = ItemLocation and ItemLocation:CreateFromBagAndSlot(x.bag, x.slot)
-      if loc and loc:IsValid() then
-        -- Called DIRECTLY (no pcall): PostCommodity/PostItem are hardware-event protected, and
-        -- a pcall boundary strips the secure context, tripping ADDON_ACTION_BLOCKED.
-        if x.isComm then
-          AH.PostCommodity(loc, PostDuration(), x.count, x.unit)
-        else
-          AH.PostItem(loc, PostDuration(), x.count, x.unit, x.unit)   -- bid = buyout
-        end
-        posted = posted + 1; gold = gold + x.unit * x.count
-      end
-    end
-  end
-  if posted > 0 then SG.Print(("Posted |cffffffff%d|r listing(s) for ~%s."):format(posted, SG.Money(gold))) end
-  if failed > 0 then SG.Print(("|cffff7070%d post(s) failed.|r First error: %s"):format(failed, tostring(firstErr))) end
-  if #postQueue > 0 then SG.Print(("|cffffd200%d remaining|r - click Post All again to continue."):format(#postQueue)) end
-  if SG.RefreshUI then SG.RefreshUI() end
-end
-SG.DoPostBatch = DoPostBatch
-
--- Two-click confirm, entirely on OUR button. StaticPopup's OnClick does NOT carry the
--- hardware-event flag into its OnAccept, so posting from a popup is blocked. Posting must
--- happen synchronously inside our own button's OnClick (a genuine hardware event), so the
--- confirm is: first click arms + previews, second click posts.
-local armed, armTimer = false, nil
-function SG.PostArmed() return armed end
-local function Disarm()
-  armed = false
-  if armTimer then armTimer:Cancel(); armTimer = nil end
-  if SG.RefreshUI then SG.RefreshUI() end
-end
-
--- Auto-posting is blocked by the client's protected-function system in this build (calling
--- C_AuctionHouse.PostCommodity even from a real button click trips ADDON_ACTION_BLOCKED). Until
--- that's resolved, this stays a PRICE HELPER: the AH column shows the undercut price to post by
--- hand via Blizzard's AH. Kept as a stub so the button/slash don't call the blocked API.
-function SG.PostAll()
-  if not atAH then SG.Print("Open the Auction House to post."); return end
-  SG.Print("Auto-posting is blocked by WoW's protection system in this build. Your |cffffd200undercut prices|r are on the AH column - post them via Blizzard's Auction House. (Pricing is fully working; one-click posting is on hold.)")
-end
+-- NOTE: one-click AH posting is NOT possible in this game version - C_AuctionHouse.PostCommodity/
+-- PostItem are protected and trip ADDON_ACTION_BLOCKED even from a real button click (confirmed
+-- by an addon-isolation test). So Time Is Money is a PRICE HELPER: SG.AHPostPrice (above) gives
+-- the undercut price to list at, shown on the Gains AH column, and you post by hand via
+-- Blizzard's Auction House. The posting engine was removed rather than shipped disabled.
 
 ef:RegisterEvent("AUCTION_HOUSE_SHOW")
 ef:RegisterEvent("AUCTION_HOUSE_CLOSED")

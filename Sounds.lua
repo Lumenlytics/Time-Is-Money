@@ -21,7 +21,6 @@ SG.SoundEvents = EVENTS
 -- "Time is money, friend!" (a FileDataID, so it goes through PlaySoundFile). SoundKit lookups
 -- are feature-detected, so a nil simply means "no sound" rather than an error.
 local function DefaultSound(key)
-  local K = SOUNDKIT or {}
   if key == "runStart" then return 550805, true end      -- goblin: "Time is money, friend!"
   if key == "runStop"  then return 550803, true end
   if key == "sell"     then return 550772, true end

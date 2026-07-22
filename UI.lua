@@ -126,8 +126,7 @@ local function ApplyTheme()
     f:SetBackdropBorderColor(T.border[1], T.border[2], T.border[3], 1)
   end
   bd(frame); bd(ticker); bd(SG.sellFrame); bd(SG.configFrame)
-  -- Shadows: the default dark font shadow reads as fuzz on the light background, so drop it
-  -- in light mode; keep it in dark where it helps text pop.
+  -- Font shadow (helps text pop on the dark background; all themes are dark).
   local sa = T.shadow and 0.9 or 0
   local sx, sy = (T.shadow and 1 or 0), (T.shadow and -1 or 0)
   local function shade(fs) if fs then fs:SetShadowColor(0, 0, 0, sa); fs:SetShadowOffset(sx, sy) end end
@@ -151,7 +150,7 @@ local function ApplyTheme()
     end
   end
   for _, b in ipairs(themedBtns) do ColorButton(b, T) end
-  if bars and T.barVend then                        -- weekly chart: darken the vendor bar for light mode
+  if bars and T.barVend then                        -- weekly chart: theme the "vendor" bar colour
     for i = 1, #bars do
       if bars[i].vend then bars[i].vend:SetColorTexture(T.barVend[1], T.barVend[2], T.barVend[3], 0.95) end
     end
@@ -472,8 +471,11 @@ local function FillGoods(sec, list, total, label, emptyMsg)
 end
 
 -- Rescan bags, refill both columns, and drive the sell footer. Each column honors its offset.
+-- Skips the (full bag) scan entirely unless the Gains tab is actually on screen - it used to
+-- run on every loot / tab switch / theme change regardless of visibility.
 RefreshGains = function()
   if not gV then return end
+  if not (frame and frame:IsShown() and activeTab == 4) then return end
   local r = SG.ScanSellables and SG.ScanSellables()
   if not r then return end
   FillGoods(gV, r.vendor, r.totalVendor, "Vendor", "Nothing to vendor.")
@@ -809,7 +811,7 @@ function SG.InitUI()
   tickBtn:SetScript("OnEnter", function(self)
     GameTooltip:SetOwner(self, "ANCHOR_TOP")
     GameTooltip:AddLine("Detach a floating run timer")
-    GameTooltip:AddLine("A small movable widget (timer + gold + GPH) to keep on screen while you farm.", 0.8, 0.8, 0.8, true)
+    GameTooltip:AddLine("A small movable widget (timer + gold + gold/hour) to keep on screen while you farm.", 0.8, 0.8, 0.8, true)
     GameTooltip:Show()
   end)
   tickBtn:SetScript("OnLeave", GameTooltip_Hide)
@@ -1151,7 +1153,7 @@ end
 function SG.OnMerchant(open)
   if open and (not SG.SellWindowEnabled or SG.SellWindowEnabled()) then
     local r = SG.ScanSellables and SG.ScanSellables()
-    if r and #r.vendor > 0 then
+    if r and (#r.vendor > 0 or #r.ah > 0) then      -- open for junk to vendor OR mats to sell
       if not frame then SG.InitUI() end
       frame:Show(); SelectTab(4)
     end
@@ -1178,7 +1180,16 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
   msg = msg or ""
   local cmd, arg = msg:match("^%s*(%S*)%s*(.-)%s*$")  -- keep arg's case for item links
   cmd = (cmd or ""):lower()
-  if cmd == "reset" then
+  if cmd == "help" or cmd == "?" or cmd == "commands" then
+    SG.Print("|cff8fd694Time Is Money|r commands:")
+    SG.PrintRaw("  |cffffd200/tim|r  show/hide the window   ·   |cffffd200/tim config|r  options")
+    SG.PrintRaw("  |cffffd200/tim run|r  start/stop a run   ·   |cffffd200/tim pause|r  ·   |cffffd200/tim ticker|r  floating timer")
+    SG.PrintRaw("  |cffffd200/tim scope|r  this char / account   ·   |cffffd200/tim theme|r [name]  ·   |cffffd200/tim scale|r <n>")
+    SG.PrintRaw("  |cffffd200/tim runs|r  list runs   ·   |cffffd200/tim delrun|r <#>   ·   |cffffd200/tim undorun|r")
+    SG.PrintRaw("  |cffffd200/tim pricing|r vendor|sells|ah   ·   |cffffd200/tim ah|vendor|exclude|r (+shift-click) per-item rules   ·   |cffffd200/tim rules|r  ·   |cffffd200/tim clearrule|r")
+    SG.PrintRaw("  |cffffd200/tim ahscan|r  rescan AH prices   ·   |cffffd200/tim undercut|r <0-90>   ·   |cffffd200/tim sound|r")
+    SG.PrintRaw("  |cffffd200/tim drops|r  ·   |cffffd200/tim sellilvl|r <n>   ·   |cffffd200/tim selllog|r   ·   |cffffd200/tim reset|r  clear this character's data")
+  elseif cmd == "reset" then
     StaticPopup_Show("TIMEISMONEY_RESET")
   elseif cmd == "run" then
     SG.ToggleRun()
