@@ -246,6 +246,9 @@ function SG.InitConfig()
     { text = "10%",    value = 10, w = 44, tip = "Post 10% under the current lowest - sells faster, less each." },
     { text = "15%",    value = 15, w = 44, tip = "Post 15% under the current lowest." },
   }, function() return S().ahUndercut or 5 end, function(v) S().ahUndercut = v; if SG.RefreshUI then SG.RefreshUI() end end)
+  Checkbox(cfg, 280, -556, "Shift-click sell",
+    function() return S().ahShiftSell ~= false end, function(v) S().ahShiftSell = v end,
+    "With the AH open, shift-click a bag item to load it into the Sell tab's auction slot. You still press Create Auction yourself.")
 
   -- ===== Sounds =====
   Label(cfg, 16, -594, "Sounds", "GameFontHighlight")

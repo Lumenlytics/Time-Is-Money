@@ -1250,6 +1250,8 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     if not (SG.AtAuctionHouse and SG.AtAuctionHouse()) then
       SG.Print("Open the Auction House first, then /tim ahscan.")
     elseif SG.AHScan then SG.AHScan() end
+  elseif cmd == "ahdiag" then
+    if SG.AHSellDiag then SG.AHSellDiag() end
   elseif cmd == "undercut" then
     local n = tonumber(arg)
     if n and n >= 0 and n <= 90 then

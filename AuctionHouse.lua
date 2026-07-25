@@ -315,6 +315,164 @@ end
 -- the undercut price to list at, shown on the Gains AH column, and you post by hand via
 -- Blizzard's Auction House. The posting engine was removed rather than shipped disabled.
 
+----------------------------------------------------------------------
+-- Shift-click sell: with the AH open, shift-clicking a bag item loads it into
+-- Blizzard's OWN Sell tab - the same result as dragging it onto the sell slot.
+-- Only the final Post call is protected (see NOTE above); *selecting* the item
+-- is plain UI, which is exactly how Auctionator's bag shortcut works (theirs is
+-- alt-click, into their own tab). You still press Create Auction yourself.
+--
+-- 12.x uses the LEGACY-style AH (AuctionFrame, Buy/Sell/Auctions tabs), where
+-- the sell slot is filled by cursor-carrying: pick the item up, click the sell
+-- item button. Sequence copied from Auctionator's legacy SaleItem:SellItemClick.
+-- The modern AuctionHouseFrame path is kept as a fallback should it return.
+----------------------------------------------------------------------
+local diagTrace = false
+local function DPrint(msg) if diagTrace then SG.Print("|cffffd200[ahdiag]|r " .. msg) end end
+
+local function PushToSellFrame(bag, slot)
+  local loc = ItemLocation:CreateFromBagAndSlot(bag, slot)
+  if not (loc and loc:IsValid() and C_Item.DoesItemExist(loc)) then DPrint("push: bad item location") return end
+  local f = AuctionHouseFrame
+  DPrint(("push: legacyAF=%s  AHF shown=%s  SetPostItem=%s  ItemSellFrame=%s"):format(
+    tostring(AuctionFrame and AuctionFrame:IsShown() or false), tostring(f and f:IsShown() or false),
+    tostring(f and f.SetPostItem ~= nil), tostring(f and f.ItemSellFrame ~= nil)))
+  if AuctionFrame and AuctionFrame:IsShown() and ClickAuctionSellItemButton then
+    if AuctionFrameTab2 then AuctionFrameTab2:Click() end   -- Blizzard tab order: Buy, Sell, Auctions
+    ClearCursor()
+    ClickAuctionSellItemButton()                            -- lift any current sell item out of the slot
+    ClearCursor()                                           -- ...and send it back to the bags
+    C_Container.PickupContainerItem(bag, slot)
+    ClickAuctionSellItemButton()
+    ClearCursor()
+  elseif f and f:IsShown() and f.SetPostItem then
+    if AH.IsSellItemValid and not AH.IsSellItemValid(loc, false) then DPrint("push: IsSellItemValid=false") return end
+    if f.ClearPostItem then pcall(f.ClearPostItem, f) end   -- official reset of the sell form
+    f:SetPostItem(loc)
+    -- 12.x quirk (confirmed by ahdiag): SetPostItem silently no-ops when the Sell
+    -- view is already active - the form only reads the pushed item when it
+    -- (re)shows. So also set the item directly on the matching sell form;
+    -- harmless double-set when SetPostItem itself worked.
+    local isComm = AH.GetItemCommodityStatus and Enum.ItemCommodityStatus
+      and AH.GetItemCommodityStatus(loc) == Enum.ItemCommodityStatus.Commodity
+    local target = isComm and f.CommoditiesSellFrame or f.ItemSellFrame
+    if target and target.SetItem then
+      local okSet, errSet = pcall(target.SetItem, target, loc)
+      DPrint(("push: SetPostItem + SetItem on %s  (comm=%s ok=%s%s  itemSell shown=%s commSell shown=%s)"):format(
+        isComm and "CommoditiesSellFrame" or "ItemSellFrame", tostring(isComm), tostring(okSet),
+        okSet and "" or ("  err=" .. tostring(errSet)),
+        tostring(f.ItemSellFrame and f.ItemSellFrame:IsShown() or false),
+        tostring(f.CommoditiesSellFrame and f.CommoditiesSellFrame:IsShown() or false)))
+    else
+      DPrint("push: SetPostItem called; no direct sell-form target found")
+    end
+    -- Trace-only post-check: a beat later, ask the form what item it now holds.
+    if diagTrace and target then
+      C_Timer.After(0.1, function()
+        local okGet, got = pcall(function() return target.GetItem and target:GetItem() end)
+        DPrint("post-check: sell form item = " .. tostring(okGet and got or ("err " .. tostring(got))))
+      end)
+    end
+  else
+    DPrint("push: NO known sell path - run /tim ahdiag and paste the dump")
+  end
+end
+
+local lastShiftSell = 0
+local function OnBagShiftClick(bag, slot)
+  local why
+  if not atAH then why = "not at AH"
+  elseif S().ahShiftSell == false then why = "feature off"
+  elseif not bag or not slot then why = "no bag/slot"
+  elseif not IsShiftKeyDown() or IsAltKeyDown() or IsControlKeyDown() then why = "wrong modifiers"
+  elseif GetMouseButtonClicked and GetMouseButtonClicked() ~= "LeftButton" then why = "button=" .. tostring(GetMouseButtonClicked())
+  elseif ChatEdit_GetActiveWindow and ChatEdit_GetActiveWindow() then why = "chat box open (link instead)"
+  elseif GetTime() == lastShiftSell then why = "duplicate hook fire"
+  end
+  if why then DPrint("skip: " .. why) return end
+  lastShiftSell = GetTime()
+  local ok, err = pcall(PushToSellFrame, bag, slot)
+  if not ok and (diagTrace or S().debug) then SG.Print("Shift-sell failed: " .. tostring(err)) end
+end
+
+-- With the Sell tab active, 12.x fires HandleModifiedItemClick with only the
+-- link - no itemLocation (confirmed by ahdiag) - so recover the slot by scan.
+local function FindBagSlotByLink(link)
+  for bag = 0, NUM_TOTAL_EQUIPPED_BAG_SLOTS or 5 do
+    for slot = 1, C_Container.GetContainerNumSlots(bag) or 0 do
+      if C_Container.GetContainerItemLink(bag, slot) == link then return bag, slot end
+    end
+  end
+end
+
+-- Is the AH currently showing a sell view? Gates the link-only fallback so a
+-- shift-clicked CHAT link on the Buy tab doesn't get yanked into the sell slot.
+local function SellViewActive()
+  local f = AuctionHouseFrame
+  if not (f and f:IsShown()) then return false end
+  if (f.ItemSellFrame and f.ItemSellFrame:IsShown())
+    or (f.CommoditiesSellFrame and f.CommoditiesSellFrame:IsShown())
+    or (f.WoWTokenSellFrame and f.WoWTokenSellFrame:IsShown()) then return true end
+  local dm = AuctionHouseFrameDisplayMode
+  if dm and f.GetDisplayMode then
+    local cur = f:GetDisplayMode()
+    return cur == dm.ItemSell or cur == dm.CommoditiesSell or cur == dm.WoWTokenSell
+  end
+  return false
+end
+
+hooksecurefunc(_G, "HandleModifiedItemClick", function(link, itemLocation)
+  local isBagSlot = itemLocation and itemLocation.IsBagAndSlot and itemLocation:IsBagAndSlot()
+  DPrint("HandleModifiedItemClick fired: loc=" .. tostring(itemLocation ~= nil) .. " bagslot=" .. tostring(isBagSlot or false))
+  if isBagSlot then
+    OnBagShiftClick(itemLocation:GetBagAndSlot())
+  elseif type(link) == "string" and atAH and S().ahShiftSell ~= false and IsShiftKeyDown() then
+    local active = SellViewActive()
+    local bag, slot = FindBagSlotByLink(link)
+    DPrint(("link-only click: sellView=%s  bag scan -> %s/%s"):format(tostring(active), tostring(bag), tostring(slot)))
+    if active then OnBagShiftClick(bag, slot) end
+  end
+end)
+
+if ContainerFrameItemButton_OnModifiedClick then
+  hooksecurefunc(_G, "ContainerFrameItemButton_OnModifiedClick", function(self, button)
+    DPrint("ContainerFrameItemButton_OnModifiedClick fired: btn=" .. tostring(button))
+    if button ~= "LeftButton" then return end
+    local bag = self.GetBagID and self:GetBagID() or (self:GetParent() and self:GetParent():GetID())
+    OnBagShiftClick(bag, self:GetID())
+  end)
+end
+
+-- /tim ahdiag: toggle click tracing + dump the AH sell API surface, so shift-click
+-- sell can be adapted when Blizzard reshapes the AH (as 12.x did).
+function SG.AHSellDiag()
+  diagTrace = not diagTrace
+  SG.Print("AH sell diagnostic " .. (diagTrace and "|cff8fd694ON|r - shift-click a bag item now, then paste everything below." or "|cff808080off|r"))
+  if not diagTrace then return end
+  local f = AuctionHouseFrame
+  SG.Print(("  legacy AuctionFrame=%s   AuctionHouseFrame=%s (shown=%s)   atAH=%s"):format(
+    tostring(AuctionFrame ~= nil), tostring(f ~= nil), tostring(f and f:IsShown() or false), tostring(atAH)))
+  SG.Print(("  ClickAuctionSellItemButton=%s   ContainerBtn_OnModifiedClick=%s"):format(
+    tostring(ClickAuctionSellItemButton ~= nil), tostring(ContainerFrameItemButton_OnModifiedClick ~= nil)))
+  if not f then return end
+  local keys = {}
+  for k, v in pairs(f) do
+    if type(k) == "string" then
+      local lk = k:lower()
+      if lk:find("sell") or lk:find("post") then keys[#keys + 1] = k .. "(" .. type(v) .. ")" end
+    end
+  end
+  table.sort(keys)
+  SG.Print("  AHF sell/post members: " .. (#keys > 0 and table.concat(keys, ", ") or "(none)"))
+  local kids = {}
+  for i = 1, select("#", f:GetChildren()) do
+    local c = select(i, f:GetChildren())
+    local n = c and c.GetName and c:GetName()
+    if n then kids[#kids + 1] = (n:gsub("^AuctionHouseFrame", "~")) end
+  end
+  SG.Print("  AHF named children: " .. (#kids > 0 and table.concat(kids, ", ") or "(none)"))
+end
+
 ef:RegisterEvent("AUCTION_HOUSE_SHOW")
 ef:RegisterEvent("AUCTION_HOUSE_CLOSED")
 ef:RegisterEvent("AUCTION_HOUSE_THROTTLED_SYSTEM_READY")
