@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.0.5
+
+### Additions
+- **Shift-click to sell at the Auction House:** with the AH open, shift-click an item in your
+  bags and it loads straight into the Sell tab's auction slot — no dragging. You still set the
+  price and press Create Auction yourself, so nothing is ever posted without you.
+- **On by default, with an off switch** in Options ("Shift-click sell"). It only fires while a
+  sell view is actually open, so a shift-click on the Buy tab is left alone, and shift-clicking
+  into the chat box still links the item as normal.
+- **`/tim ahdiag`** toggles a diagnostic trace of the Auction House sell path. If a future patch
+  reshapes the AH and shift-click sell stops working, run it, shift-click a bag item, and paste
+  the dump into a bug report.
+
+### Internal
+- The shortcut drives both the legacy Auction House layout (what the current patch ships) and
+  the modern one, so it keeps working whichever Blizzard has live.
+
 ## 1.0.4
 
 ### Fixes
