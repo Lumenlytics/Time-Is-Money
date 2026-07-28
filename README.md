@@ -1,4 +1,4 @@
-# Time Is Money  (v0.19.0)
+# Time Is Money  (v1.0.5)
 
 A clean, native-feeling **live farm & gold tracker** for WoW Retail (Midnight). It values what
 you gather and loot, tracks your real gold/hour, remembers where you earn the most, and helps
@@ -16,7 +16,7 @@ you clear your bags and price your mats on the Auction House — all in one tidy
 3. Restart WoW (or `/reload`) and make sure **Time Is Money** is enabled on the AddOns list.
 4. Type **`/tim`** in game to open the window.
 
-No dependencies. Built for interface **120007** (Midnight).
+No dependencies. Built for interface **120100** (Midnight), with **120007** still supported.
 
 ---
 
@@ -33,7 +33,9 @@ Just go farm — a run **auto-starts** on your first gather or loot. The window 
   **search a whole category** (Herbs/Ore/Leather/Cloth/Cooking) for under-supplied mats worth
   farming. **Left-click a Market item for a copyable Wowhead link** (where to farm it).
 - **Gains** — sell & price. At a merchant: review the vendor pile, keep/rule items, **Sell All**
-  (with confirm + undo). At the AH: each mat shows the recommended undercut **price to list at**.
+  (with confirm + undo). At the AH: each mat shows the recommended undercut **price to list at**,
+  and **shift-clicking a bag item loads it straight into the sell slot** (on by default; toggle
+  in Options). You still set the price and press Create Auction yourself.
 
 `/tim config` opens options.
 
@@ -57,6 +59,7 @@ tracked from loot only (vendor/repair/mail don't count). Banked totals count onl
 - `/tim sell` — open the sell/AH (Gains) tab · `/tim sellilvl <n>` — gear-sell floor (item level)
 - `/tim pricing vendor|sells|ah` — pricing mode · `/tim ah|vendor|exclude` (+shift-click) — per-item rules · `/tim rules` · `/tim clearrule`
 - `/tim ahscan` — rescan AH prices · `/tim undercut <0-90>` — AH undercut %
+- `/tim ahdiag` — trace the AH sell path (for bug reports if shift-click sell breaks)
 - `/tim drops` — count looted drops · `/tim selllog` — recent sales · `/tim sound` — sound options
 - `/tim config` — options · `/tim reset` — clear this character's data
 
@@ -69,8 +72,8 @@ Color themes: **Seafoam · Amethyst · Amber · Crimson · Steel · Class Color*
   auctions directly. Time Is Money shows you the exact price to list at — you place the
   auction in Blizzard's own AH window. ("It won't post for me" is expected, not a bug.)
 - **Data is per-character and starts empty** — it tracks going forward, no back-fill.
-- **Same-patch:** built for Midnight (120007). On a different build it may show "out of date"
-  (still loads if you tick *Load out of date AddOns*).
+- **Same-patch:** built for Midnight (120100, with 120007 still declared). On a different build
+  it may show "out of date" (still loads if you tick *Load out of date AddOns*).
 - Some Auction House / market features have only been tested on one setup, so other configs
   may surface edge cases — that's exactly what this beta is for.
 
