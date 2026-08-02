@@ -1,4 +1,4 @@
-# Time Is Money  (v1.0.5)
+# Time Is Money  (v1.0.6)
 
 A clean, native-feeling **live farm & gold tracker** for WoW Retail (Midnight). It values what
 you gather and loot, tracks your real gold/hour, remembers where you earn the most, and helps
@@ -56,6 +56,7 @@ tracked from loot only (vendor/repair/mail don't count). Banked totals count onl
 - `/tim run` · `/tim pause` — start/stop · pause the run · `/tim ticker` — floating timer
 - `/tim runs` · `/tim delrun <#>` · `/tim undorun` — run journal
 - `/tim scope` — this character ⇄ account · `/tim theme [name]` — color theme · `/tim scale <n>` — window size
+- `/tim pos` — put the window back to its default spot (upper left) if you lose it
 - `/tim sell` — open the sell/AH (Gains) tab · `/tim sellilvl <n>` — gear-sell floor (item level)
 - `/tim pricing vendor|sells|ah` — pricing mode · `/tim ah|vendor|exclude` (+shift-click) — per-item rules · `/tim rules` · `/tim clearrule`
 - `/tim ahscan` — rescan AH prices · `/tim undercut <0-90>` — AH undercut %

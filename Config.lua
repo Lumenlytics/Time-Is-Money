@@ -124,7 +124,7 @@ function SG.InitConfig()
   if cfg then return end
 
   cfg = CreateFrame("Frame", "TimeIsMoneyConfigFrame", UIParent, "BackdropTemplate")
-  cfg:SetSize(446, 736)
+  cfg:SetSize(446, 800)
   cfg:SetPoint("CENTER", 60, 0)
   cfg:SetMovable(true)
   cfg:EnableMouse(true)
@@ -267,9 +267,14 @@ function SG.InitConfig()
   end
   Help(cfg, 18, -642, "Hunt a sound with /tim sound <id>, then assign it: /tim sound set runstart <id>")
 
-  -- ===== Floating timer size =====
-  Label(cfg, 16, -672, "Floating timer size", "GameFontHighlight")
-  Slider(cfg, 24, -694, "smaller  -  larger", 0.6, 2.0, 0.05,
+  -- ===== Sizes =====
+  -- Two independent scales. Slider labels must differ: Slider() derives a global
+  -- frame name from the label text, so identical labels would collide.
+  Label(cfg, 16, -672, "Size", "GameFontHighlight")
+  Slider(cfg, 24, -698, "main window", 0.6, 1.6, 0.05,
+    function() return S().uiScale or 1.0 end,
+    function(v) SG.SetUIScaleValue(v) end)
+  Slider(cfg, 24, -756, "floating timer", 0.6, 2.0, 0.05,
     function() return S().tickerScale or 1.0 end,
     function(v) SG.SetTickerScale(v) end)
 

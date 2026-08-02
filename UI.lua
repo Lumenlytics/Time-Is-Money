@@ -192,14 +192,21 @@ local function ApplyScale()
 end
 SG.ApplyScale = ApplyScale
 
+-- Silent setter (also driven by the Options slider). No chat output: OnValueChanged
+-- fires on every drag tick, which would spam the frame with one line per pixel.
+function SG.SetUIScaleValue(n)
+  n = tonumber(n); if not n then return end
+  TimeIsMoneyDB.settings.uiScale = math.max(0.6, math.min(1.6, n))
+  ApplyScale()
+end
+
 function SG.SetUIScale(arg)
   local n = tonumber(arg)
   if not n then
     SG.Print(("Window scale is %.2f. Set with /tim scale 0.6 - 1.6."):format(TimeIsMoneyDB.settings.uiScale or 1.0))
     return
   end
-  TimeIsMoneyDB.settings.uiScale = math.max(0.6, math.min(1.6, n))
-  ApplyScale()
+  SG.SetUIScaleValue(n)
   SG.Print(("Window scale = |cff8fd694%.2f|r"):format(TimeIsMoneyDB.settings.uiScale))
 end
 
@@ -734,15 +741,39 @@ end
 ----------------------------------------------------------------------
 -- Build
 ----------------------------------------------------------------------
+local function SaveFramePos()
+  if not frame then return end
+  local p, _, _, x, y = frame:GetPoint()
+  if TimeIsMoneyDB and TimeIsMoneyDB.settings then TimeIsMoneyDB.settings.framePos = { p, x, y } end
+end
+
+-- Put the window back at the default spot. Needed because the position is now
+-- remembered: a window dragged somewhere useless would otherwise stay there.
+function SG.ResetFramePos()
+  if TimeIsMoneyDB and TimeIsMoneyDB.settings then TimeIsMoneyDB.settings.framePos = nil end
+  if frame then
+    frame:ClearAllPoints()
+    frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 24, -140)
+  end
+  SG.Print("Window position reset.")
+end
+
 function SG.InitUI()
   if frame then return end
 
   frame = CreateFrame("Frame", "TimeIsMoneyFrame", UIParent, "BackdropTemplate")
   frame:SetSize(WIN_W, WIN_H)
-  frame:SetPoint("CENTER")
+  -- Default to the upper left, not centre: mid-screen is where cooldown timers and
+  -- unit frames live on a modern UI, so a window opening there lands on top of them.
+  local fpos = TimeIsMoneyDB and TimeIsMoneyDB.settings and TimeIsMoneyDB.settings.framePos
+  if fpos then
+    frame:SetPoint(fpos[1], UIParent, fpos[1], fpos[2], fpos[3])
+  else
+    frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 24, -140)
+  end
   frame:SetMovable(true); frame:EnableMouse(true); frame:RegisterForDrag("LeftButton")
   frame:SetScript("OnDragStart", frame.StartMoving)
-  frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+  frame:SetScript("OnDragStop", function(self) self:StopMovingOrSizing(); SaveFramePos() end)
   frame:SetClampedToScreen(true)
   frame:SetBackdrop({ bgFile = "Interface\\Buttons\\WHITE8X8", edgeFile = "Interface\\Buttons\\WHITE8X8", edgeSize = 1 })
   frame:Hide()
@@ -1184,7 +1215,7 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     SG.Print("|cff8fd694Time Is Money|r commands:")
     SG.PrintRaw("  |cffffd200/tim|r  show/hide the window   ·   |cffffd200/tim config|r  options")
     SG.PrintRaw("  |cffffd200/tim run|r  start/stop a run   ·   |cffffd200/tim pause|r  ·   |cffffd200/tim ticker|r  floating timer")
-    SG.PrintRaw("  |cffffd200/tim scope|r  this char / account   ·   |cffffd200/tim theme|r [name]  ·   |cffffd200/tim scale|r <n>")
+    SG.PrintRaw("  |cffffd200/tim scope|r  this char / account   ·   |cffffd200/tim theme|r [name]  ·   |cffffd200/tim scale|r <n>   ·   |cffffd200/tim pos|r  reset position")
     SG.PrintRaw("  |cffffd200/tim runs|r  list runs   ·   |cffffd200/tim delrun|r <#>   ·   |cffffd200/tim undorun|r")
     SG.PrintRaw("  |cffffd200/tim pricing|r vendor|sells|ah   ·   |cffffd200/tim ah|vendor|exclude|r (+shift-click) per-item rules   ·   |cffffd200/tim rules|r  ·   |cffffd200/tim clearrule|r")
     SG.PrintRaw("  |cffffd200/tim ahscan|r  rescan AH prices   ·   |cffffd200/tim undercut|r <0-90>   ·   |cffffd200/tim sound|r")
@@ -1218,6 +1249,8 @@ SlashCmdList["TIMEISMONEY"] = function(msg)
     end
   elseif cmd == "scale" then
     SG.SetUIScale(arg)
+  elseif cmd == "pos" then
+    SG.ResetFramePos()
   elseif cmd == "labelprompt" then
     SG.ToggleRunLabelPrompt()
   elseif cmd == "autostart" then

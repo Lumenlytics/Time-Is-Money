@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.6
+
+### Additions
+- **The main window opens in the upper left** instead of the middle of the screen. Mid-screen is
+  where cooldown timers and unit frames usually sit on a modern UI, so the old default landed on
+  top of them.
+- **The window remembers where you drag it,** across reloads and across sessions. It previously
+  re-centred every time you logged in, which the floating timer never did.
+- **Window size slider in Options,** next to the floating timer's, under a new "Size" heading.
+  Resizing the main window was previously only possible with `/tim scale`.
+- **`/tim pos`** puts the window back to the default spot if it ends up somewhere awkward.
+
 ## 1.0.5
 
 ### Additions
