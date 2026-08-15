@@ -762,12 +762,20 @@ end
 --   Midnight SEASON 1 caps (source: wowhead.com/guide/midnight/item-level-gear-upgrades-dawncrests):
 --     Adventurer 237 · Veteran 250 · Champion 263 · Hero 276 · Myth 289.
 --   (Season 2 reportedly raises the cap to ~337 - bump the floors below when the season turns.)
+-- Season 2 (12.1) upgrade-track floors. Each floor is the START of that track, so
+-- "keep this tier and up" vendors everything under it.
+--   Adventurer 259-276 · Veteran 276-289 · Champion 289-302 · Hero 302-315 · Myth 315-328
+-- (ilvl 337 exists but is NOT part of any track - very-rare and final-raid-boss loot only,
+--  so it never factors into a floor.)
+-- These MUST be re-checked every season. The S1 numbers left in place through a season
+-- change are actively dangerous: S1's Myth floor (276) is S2's Veteran floor, so a player
+-- who picked Myth would have auto-vendored the whole S2 Adventurer band.
 SG.GEAR_TIERS = {
   { label = "Never",    floor = 0 },     -- keep all gear
-  { label = "Veteran",  floor = 237 },   -- keep Veteran & up; vendor below it (<= Adventurer cap)
-  { label = "Champion", floor = 250 },   -- keep Champion & up; vendor below it (<= Veteran cap)
-  { label = "Hero",     floor = 263 },   -- keep Hero & up;     vendor below it (<= Champion cap)
-  { label = "Myth",     floor = 276 },   -- keep Myth & up;     vendor below it (<= Hero cap)
+  { label = "Veteran",  floor = 276 },   -- keep Veteran & up; vendor below it (<= Adventurer cap)
+  { label = "Champion", floor = 289 },   -- keep Champion & up; vendor below it (<= Veteran cap)
+  { label = "Hero",     floor = 302 },   -- keep Hero & up;     vendor below it (<= Champion cap)
+  { label = "Myth",     floor = 315 },   -- keep Myth & up;     vendor below it (<= Hero cap)
 }
 
 function SG.SetSellGearIlvl(arg)
@@ -980,8 +988,31 @@ local MAT_SUBCLASS_PROF = {
   [9]  = "herbalism",   -- Herb
   [10] = "mining",      -- Elemental (ore-adjacent)
 }
+-- Cursed Fishing catches (12.1, Coiled Isle). Fish carry no distinct tradeskill
+-- subclass, so unlike ore or herbs they cannot be identified by MAT_SUBCLASS_PROF.
+-- An explicit ID set makes fishing attribution hold even when the 30s cast window
+-- has lapsed - which it routinely does at surge pools, where the catch is looted
+-- well after the cast.
+local FISH_IDS = {
+  [274587] = true,  -- Spotted Killifish
+  [274588] = true,  -- Toxic Tlhapi
+  [274589] = true,  -- Ula'tek Snakehead
+  [274590] = true,  -- Sulfurous Sludgefish
+  [274591] = true,  -- Coiled Stargorger
+  [274592] = true,  -- Dirty Darter
+  [274593] = true,  -- Blightswarmer
+  [274594] = true,  -- Polluted Puffer
+  [279091] = true,  -- Oozing Goby
+  [279093] = true,  -- Giggling Skull
+  [279094] = true,  -- Grotesque Sturgeon
+  [279100] = true,  -- Many-Eyed Flounder
+  [279105] = true,  -- Twin-Headed Snipefish
+  [279106] = true,  -- Loathsome Anglerfish
+}
+
 local function MatProf(itemID)
   if not itemID then return nil end
+  if FISH_IDS[itemID] then return "fishing" end
   local _, _, _, _, _, classID, subClassID = C_Item.GetItemInfoInstant(itemID)
   if classID ~= 7 then return nil end
   return MAT_SUBCLASS_PROF[subClassID]
@@ -998,7 +1029,10 @@ local function IsCountableDrop(link, itemID)
   return true
 end
 
-local OTHER_GATHER = { mining = true, herbalism = true, skinning = true, tailoring = true }
+-- Gathers whose mats are identifiable on sight, so loot that clearly belongs to one of
+-- them wins over whatever cast is currently open. Fishing joins the set now that
+-- FISH_IDS names the catches: a fish looted mid-mining-window is still a fish.
+local OTHER_GATHER = { mining = true, herbalism = true, skinning = true, tailoring = true, fishing = true }
 local function OnLoot(msg)
   local link, qty = msg:match(PAT_MULTI)
   if not link then link = msg:match(PAT_SINGLE); qty = 1 end
@@ -1012,8 +1046,8 @@ local function OnLoot(msg)
   local window = (lastGatherProf == "fishing") and 30 or (settings.window or 2.0)
   -- A mat that clearly belongs to ANOTHER gathering profession (ore/herb/leather/cloth) is
   -- credited to that profession, not to a lingering gather cast - so ore looted during the long
-  -- fishing window goes to Mining, not Fishing. (Fish have no distinct subclass, so they still
-  -- fall to the cast window below.)
+  -- fishing window goes to Mining, not Fishing, and (since FISH_IDS) a fish looted during a
+  -- mining cast goes to Fishing rather than Mining.
   if lastGatherProf and (GetTime() - lastGatherAt) <= window
      and matProf and matProf ~= lastGatherProf and OTHER_GATHER[matProf]
      and settings.profs and settings.profs[matProf] then

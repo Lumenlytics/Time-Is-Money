@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.0.7
+
+Patch 12.1 / Season 2 pass. Verified on live build 69189.
+
+### Fixes
+- **Season 2 gear tiers.** The auto-vendor floors are now Veteran 276, Champion 289,
+  Hero 302 and Myth 315, matching the Season 2 upgrade tracks. **If you use auto-vendor,
+  this one matters:** the old Season 1 floors would have sold current-season gear, because
+  Season 1's Myth floor (276) is exactly Season 2's Veteran floor. Anyone who had picked
+  Myth would have watched the whole Season 2 Adventurer band go to the vendor. The setting
+  defaults to "Never", so only people who turned it on were ever exposed.
+
+### Additions
+- **Cursed Fishing catches are now recognised on sight** — all 14 fish from Coiled Isle.
+  Fish carry no distinct item subclass, so until now they were credited to Fishing only if
+  the 30-second cast window was still open. At surge pools, where the catch often arrives
+  well after the cast, that window had usually closed and the fish landed in the wrong
+  source. It no longer depends on timing.
+- A fish looted while another gather is running now credits **Fishing** rather than
+  whatever you last mined or skinned. The mirror of this rule already existed for ore.
+
+### Internal
+- Wago Addons upload wired into the release workflow. Dormant until the project is
+  configured, and it cannot affect CurseForge releases in the meantime.
+
 ## 1.0.6
 
 ### Additions

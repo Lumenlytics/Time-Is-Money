@@ -1,4 +1,4 @@
-# Time Is Money  (v1.0.6)
+# Time Is Money  (v1.0.7)
 
 A clean, native-feeling **live farm & gold tracker** for WoW Retail (Midnight). It values what
 you gather and loot, tracks your real gold/hour, remembers where you earn the most, and helps
