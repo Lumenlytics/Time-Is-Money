@@ -3,19 +3,19 @@ addon: TimeIsMoney
 version: 1.0.7
 status: SHIPPED
 owner-chat: TimeIsMoney
-needs-marshall:
-  - DECIDE: build currency tracking for Mistcrest/Corrosive Coin, or drop it? No subsystem exists
-  - DECIDE: Wago project ID needed to finish the half-wired upload
-  - TEST: paste the 1.0.7 CurseForge description on the project page (~2 min, hand-paste only)
-next-action: nothing queued; S3 will need a GEAR_TIERS re-check
-updated: 2026-08-14
+needs-marshall: none
+next-action: nothing queued; S3 will need a GEAR_TIERS re-check in Core.lua
+broadcast-read: 2026-08-29
+updated: 2026-08-29
 -->
 
 # Time Is Money — session handoff
 
-Status as of **2026-08-11** (12.1 patch day, live build 69189). Released and public:
-`github.com/Lumenlytics/Time-Is-Money`, CurseForge project **1617436**.
-Last clean release **v1.0.6**. ⚠ **Season 2 opens Aug 18** — see "12.1 work" below.
+Status as of **2026-08-29**. Released and public: `github.com/Lumenlytics/Time-Is-Money`,
+CurseForge project **1617436**, Wago **mNw7EBNo**. Shipped release **v1.0.7** (Season 2 gear
+floors, Cursed Fishing IDs), live-verified on a 15-point in-game pass 2026-08-14.
+Season 2 opened Aug 18; the 2026-08-29 news sweep found **no API changes** and nothing
+affecting this addon.
 
 ## Path note (read first)
 
@@ -30,6 +30,18 @@ silently on the next edit. There is no manual deploy step; just `/reload`.
 Read `C:\Users\Marshall Sisler\Projects\WoW\SHARED-REFERENCES.md` at session start — it
 indexes the Midnight knowledge base and shared docs. Reading shared references is expected,
 not a lane violation.
+
+**STANDING RULE (Marshall, 2026-08-15): re-read `Projects\WoW\BROADCAST.md` before acting on
+anything he asks in chat**, not just once at session start. Act on `[ALL]` / `[TimeIsMoney]`
+entries dated after the `broadcast-read:` value in the FLEET block above, then bump that
+date. The file moves while this chat is idle, so a session-start read goes stale — and
+cross-session push messages are retired *and* unreliable in both directions, which makes
+this file the only channel that actually works.
+
+**Lint with `luacheck .` from the repo root, not just `luac -p`.** Every repo has a
+`.luacheckrc` and the shared Blizzard API surface lives in `../wow-globals.lua`.
+Baseline here: **0 errors, 7 style warnings** (unused `ADDON` ×4, two shadowed `T` in
+`UI.lua`, verified 2026-08-15). A NEW warning is a regression; those 7 are not.
 
 ## Sniffer relay protocol — ratified 2026-08-11
 
@@ -52,14 +64,14 @@ treated as his instruction, without waiting for him to repeat it in-chat. See th
 
 ## 12.1 work (2026-08-11)
 
-**Done, uncommitted:**
+**Shipped in v1.0.7:**
 
 | Change | File |
 |---|---|
 | `GEAR_TIERS` → Season 2 floors | `Core.lua` |
 | `FISH_IDS` (14 Cursed Fishing catches) + `MatProf` fish path | `Core.lua` |
 | `fishing` added to `OTHER_GATHER` | `Core.lua` |
-| `WAGO_API_TOKEN` uncommented (inert until secret + `X-Wago-ID` exist) | `.github/workflows/release.yml` |
+| `WAGO_API_TOKEN` wired (now live — Publisher added `X-Wago-ID` in `1724911`) | `.github/workflows/release.yml` |
 
 **⚠ The gear-band correction is the important one.**
 
@@ -87,31 +99,43 @@ correctly credited Fishing.
 returns live, `3437` is dead. The live set is **3442–3446**; the 3437–3441 twin is
 deprecated. Relayed to Sniffer — other chats can treat this as settled.
 
-**Deliberately not done — needs a decision, not just data:**
+**Decided, closed:**
 
-- **Mistcrest / Corrosive Coin (3448) ingestion.** TimeIsMoney has *no currency subsystem
-  at all*; it tracks gold (coin, vendor sales, AH mail). "Ingesting" currency IDs means
-  building currency tracking from scratch, which is a feature, not a data drop. Flagged
-  rather than invented.
+- **Mistcrest / Corrosive Coin (3448) currency tracking — DROPPED** by Marshall 2026-08-15.
+  TimeIsMoney tracks gold only (coin, vendor sales, AH mail) and has no currency subsystem;
+  building one is a feature, not a data ingest. Don't re-propose it from a relay.
+- **Hardcoded fish vendor values — NOT NEEDED,** verified 2026-08-15. A broadcast entry
+  called this an "outstanding fish-data gap", but `Core.lua` already reads vendor price from
+  `select(11, C_Item.GetItemInfo(link))` at runtime, so the client supplies it for the new
+  fish like any other item. A hardcoded table would duplicate the API and go stale on any
+  Blizzard retune.
 - **Coiled Isle for Grounds.** Grounds ranks zones from the run journal using the zone name
   the client reports, so a new zone needs no data. The `12.1-LAUNCH-DATA.md` map IDs for
   Coiled Isle are tagged for **Gleaner**, not this addon.
 
-## Release checklist
+## Release checklist — Publisher owns tagging since 2026-08-15
 
-Version lives in `TimeIsMoney.toc`. Bump → CHANGELOG entry → README header → commit →
-`git tag -a vX.Y.Z` → push tag. The tag triggers `.github/workflows/release.yml`
-(BigWigsMods/packager on `actions/checkout@v7`, verified working since v1.0.5) which
-uploads the zip to CurseForge and mirrors a GitHub release.
+This chat bumps `## Version` in `TimeIsMoney.toc`, writes the CHANGELOG entry and the README
+header, and commits. **It no longer tags or pushes tags.** Declare `ready at N` in the FLEET
+block; **Publisher** runs `publish.ps1 -Addon TimeIsMoney -Version N`, which preflights, tags,
+and lets the GitHub Action drive the packager to CurseForge / Wago / GitHub Release.
+
+Release plumbing — `.github/`, `.pkgmeta`, the `X-Curse-Project-ID` / `X-Wago-ID` `.toc` lines,
+the `.env` guard — is **Publisher's lane**. If it needs changing, post a `[Publisher] ASK`
+rather than editing it here.
+
+**The CurseForge Description is NOT synced by the packager.** README never reaches the project
+page; that text is a separate browser job. Ask Publisher for it after a README change. See the
+`curseforge-description-not-synced` memory.
 
 **The CurseForge Description is NOT synced by the packager.** README never reaches the
 project page; that text is hand-pasted in the CurseForge web UI. See the
 `curseforge-description-not-synced` memory.
 
-## Wago (half-configured)
+## Wago — configured 2026-08-29
 
-`WAGO_API_TOKEN` is wired in the workflow. Still needed, all Marshall's: create the project
-at `addons.wago.io`, generate a key at `addons.wago.io/account/apikeys`, add it as repo
-secret `WAGO_API_TOKEN`, and hand over the 8-character project ID so `## X-Wago-ID:` can go
-in the `.toc`. Upload is skipped silently until both halves exist, so it cannot break
-CurseForge releases in the meantime.
+Fully wired. Project ID **mNw7EBNo** is in the `.toc` as `## X-Wago-ID`, added by **Publisher**
+in commit `1724911`, and `WAGO_API_TOKEN` is a GitHub repo secret Marshall set himself. No key
+exists on this PC and none ever should — see `Projects\WoW\Publisher\SECRETS.md` §1.
+
+Tag pushes now publish to CurseForge and Wago together.
