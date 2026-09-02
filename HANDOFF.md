@@ -3,10 +3,11 @@ addon: TimeIsMoney
 version: 1.0.7
 status: SHIPPED
 owner-chat: TimeIsMoney
-needs-marshall: none
-next-action: nothing queued; S3 will need a GEAR_TIERS re-check in Core.lua
-broadcast-read: 2026-08-29
-updated: 2026-08-29
+needs-marshall:
+  - DECIDE: auto-vendor is ON by default (sellGearMaxIlvl=237, an S1 number). Options - (a) default 0/Never, safest for a destructive action, (b) retune to S2 Veteran 276, (c) leave 237 so it clears pre-S2 gear. Recommend (a); 1.0.7's CHANGELOG wrongly tells users it already defaults to Never
+next-action: apply the DECIDE above, then correct the 1.0.7 CHANGELOG claim in the next release
+broadcast-read: 2026-09-01
+updated: 2026-09-01
 -->
 
 # Time Is Money — session handoff
@@ -85,9 +86,16 @@ everything below it.
 
 Why it mattered: the shipped S1 floors were 237/250/263/276, and **S1's Myth floor of 276 is
 exactly S2's Veteran floor** — a player who had selected Myth would have auto-vendored the
-entire S2 Adventurer band. Default is `0` (Never), so only opted-in users were ever exposed.
-**Re-check these floors every season;** stale ones are not merely inaccurate, they destroy
-gear.
+entire S2 Adventurer band.
+**⚠ Correction 2026-09-01:** earlier notes here and the shipped 1.0.7 CHANGELOG say this
+setting "defaults to Never". **It does not.** `DEFAULTS.sellGearMaxIlvl` is **237**
+(`Core.lua`), so auto-vendor is ON for a fresh install, and a one-time migration
+(`didGearFloorMigration`) also lifts an existing 0 to 237. The S2 hazard above still only bit
+users who *selected* Myth — 237 is below the S2 Adventurer floor of 259 — but the stated
+reason was wrong, and 237 is itself a stale S1 number sitting in defaults. See the FLEET
+DECIDE.
+**Re-check these floors every season** — including `DEFAULTS`, not just `GEAR_TIERS`.
+Stale ones are not merely inaccurate, they destroy gear.
 
 **Live pass: PASSED 2026-08-14** (build 69189). All 15 checks green — clean `/reload`,
 vendor gear-tier gate correctly kept S2 gear with Myth selected, Sell All + Undo, AH scan,
@@ -126,10 +134,6 @@ rather than editing it here.
 
 **The CurseForge Description is NOT synced by the packager.** README never reaches the project
 page; that text is a separate browser job. Ask Publisher for it after a README change. See the
-`curseforge-description-not-synced` memory.
-
-**The CurseForge Description is NOT synced by the packager.** README never reaches the
-project page; that text is hand-pasted in the CurseForge web UI. See the
 `curseforge-description-not-synced` memory.
 
 ## Wago — configured 2026-08-29
